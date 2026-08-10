@@ -1,202 +1,212 @@
-// ==== state ====
-let currentItems = [];
-
-const els = {
-  itemGroup: document.getElementById("itemGroup"),
-  itemSearch: document.getElementById("itemSearch"),
-  itemSelectedIndex: document.getElementById("itemSelectedIndex"),
-  itemResults: document.getElementById("itemResults"),
-  itemCode: document.getElementById("itemCode"),
-  unit: document.getElementById("unit"),
-  qty: document.getElementById("qty"),
-  durationRow: document.getElementById("durationRow"),
-  duration: document.getElementById("duration"),
-  durUnit: document.getElementById("durUnit"),
-  projectId: document.getElementById("projectId"),
-  woNo: document.getElementById("woNo"),
-  purpose: document.getElementById("purpose"),
-  refNo: document.getElementById("refNo"),
-  expectedDate: document.getElementById("expectedDate"),
-  form: document.getElementById("requestForm"),
-  submitBtn: document.getElementById("submitBtn"),
-  formMsg: document.getElementById("formMsg"),
-  requestByLabel: document.getElementById("requestByLabel"),
-};
-
-// ==== Smart Gate integration placeholder ====
-// TODO: ganti dengan pemanggilan API Smart Gate yang sesungguhnya
-function getCurrentUser() {
-  return { id: "dummy_user", name: "Dummy User" };
+:root {
+  --ink: #1c2321;
+  --ink-soft: #5b645f;
+  --paper: #f6f4ee;
+  --card: #ffffff;
+  --line: #dcd8cc;
+  --rust: #b3502a;
+  --rust-dark: #8a3c1f;
+  --moss: #4a5d43;
+  --moss-bg: #eaf0e6;
+  --danger: #a33d2d;
+  --radius: 10px;
+  font-size: 16px;
 }
 
-// ==== load resources (dengan cache session) ====
-async function loadResourceItems(group) {
-  const cacheKey = `resources_${group}`;
-  const cached = sessionStorage.getItem(cacheKey);
-  if (cached) return JSON.parse(cached);
+* { box-sizing: border-box; }
 
-  const res = await fetch(`${RESOURCES_URL}?sheet=${encodeURIComponent(group)}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-
-  sessionStorage.setItem(cacheKey, JSON.stringify(data));
-  return data;
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
 }
 
-els.itemGroup.addEventListener("change", async () => {
-  const group = els.itemGroup.value;
-  resetItemFields();
-
-  els.itemSearch.disabled = true;
-  els.itemSearch.value = "";
-  els.itemSearch.placeholder = "Memuat item...";
-  els.itemResults.hidden = true;
-
-  els.durationRow.hidden = !RENTAL_GROUPS.includes(group);
-
-  try {
-    currentItems = await loadResourceItems(group);
-    els.itemSearch.placeholder = `Ketik untuk cari (${currentItems.length} item)`;
-    els.itemSearch.disabled = false;
-  } catch (err) {
-    els.itemSearch.placeholder = "Gagal memuat item";
-    showMsg("Gagal memuat daftar item: " + err.message, "error");
-  }
-});
-
-els.itemSearch.addEventListener("input", () => {
-  els.itemSelectedIndex.value = "";
-  resetItemFields();
-  renderItemResults(els.itemSearch.value.trim().toLowerCase());
-});
-
-els.itemSearch.addEventListener("focus", () => {
-  if (els.itemSearch.value.trim() !== "") {
-    renderItemResults(els.itemSearch.value.trim().toLowerCase());
-  }
-});
-
-document.addEventListener("click", (e) => {
-  if (!els.itemResults.contains(e.target) && e.target !== els.itemSearch) {
-    els.itemResults.hidden = true;
-  }
-});
-
-function renderItemResults(query) {
-  const filtered = query
-    ? currentItems.filter((item) => {
-        const haystack = `${item.Specification} ${item.Size || ""} ${item.Item_Code || ""}`.toLowerCase();
-        return haystack.includes(query);
-      })
-    : currentItems;
-
-  els.itemResults.innerHTML = "";
-
-  if (filtered.length === 0) {
-    els.itemResults.innerHTML = `<div class="combobox-empty">Item tidak ditemukan</div>`;
-    els.itemResults.hidden = false;
-    return;
-  }
-
-  filtered.slice(0, 50).forEach((item) => {
-    const realIndex = currentItems.indexOf(item);
-    const row = document.createElement("div");
-    row.className = "combobox-item";
-    row.innerHTML = `${item.Specification} <span class="code">${item.Size ? "· " + item.Size : ""} ${item.Item_Code ? "· " + item.Item_Code : ""}</span>`;
-    row.addEventListener("click", () => selectItem(realIndex));
-    els.itemResults.appendChild(row);
-  });
-
-  els.itemResults.hidden = false;
+.topbar {
+  background: var(--ink);
+  color: #f6f4ee;
+}
+.topbar-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.mark {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 14px;
+}
+.site-name {
+  font-size: 13px;
+  color: #b8bdb5;
+  border-left: 1px solid #444a43;
+  padding-left: 8px;
 }
 
-function selectItem(index) {
-  const item = currentItems[index];
-  if (!item) return;
-  els.itemSelectedIndex.value = index;
-  els.itemSearch.value = item.Specification;
-  els.itemCode.value = item.Item_Code || item.ID || "";
-  els.unit.value = item.Unit || "";
-  els.itemResults.hidden = true;
+.wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
 }
 
-function resetItemFields() {
-  els.itemCode.value = "";
-  els.unit.value = "";
+.page-head { margin-bottom: 20px; }
+.eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rust);
+  margin-bottom: 6px;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+.sub {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  max-width: 52ch;
 }
 
-// ==== submit ====
-els.form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  showMsg("", "");
-
-  const item = currentItems[els.itemSelectedIndex.value];
-  if (!item) {
-    showMsg("Pilih item dari daftar pencarian terlebih dahulu.", "error");
-    return;
-  }
-
-  const user = getCurrentUser();
-  const payload = {
-    target: "Request",
-    data: {
-      DATE_REQUEST: new Date().toISOString().split("T")[0],
-      PROJECTID: els.projectId.value,
-      WO_NO: els.woNo.value,
-      ItemID: item.ID,
-      ItemDescription: item.Specification,
-      QTY: els.qty.value,
-      UNIT: els.unit.value,
-      DURATION: els.duration.value || "",
-      DurUnit: els.durationRow.hidden ? "" : els.durUnit.value,
-      CATAGORY_ID: item.CATAGORY_ID || "",
-      Item_Code: els.itemCode.value,
-      ItemGroup: els.itemGroup.value,
-      Purpose: els.purpose.value,
-      RefNo: els.refNo.value,
-      ExpectedDate: els.expectedDate.value,
-      Status: "Pending",
-      RequestBy: user.id,
-    },
-  };
-
-  els.submitBtn.disabled = true;
-  els.submitBtn.textContent = "Mengirim...";
-
-  try {
-    const res = await fetch(TRANSAKSI_URL, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    const result = await res.json();
-
-    if (result.success) {
-      showMsg(`Permintaan berhasil dikirim (ID #${result.id}).`, "success");
-      els.form.reset();
-      els.itemSearch.value = "";
-      els.itemSearch.placeholder = "Pilih kelompok dulu";
-      els.itemSearch.disabled = true;
-      els.itemSelectedIndex.value = "";
-      els.durationRow.hidden = true;
-      resetItemFields();
-    } else {
-      showMsg("Gagal mengirim: " + (result.error || "tidak diketahui"), "error");
-    }
-  } catch (err) {
-    showMsg("Gagal mengirim: " + err.message, "error");
-  } finally {
-    els.submitBtn.disabled = false;
-    els.submitBtn.textContent = "Kirim permintaan";
-  }
-});
-
-function showMsg(text, type) {
-  els.formMsg.textContent = text;
-  els.formMsg.className = "form-msg" + (type ? " " + type : "");
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
 }
 
-// ==== init ====
-(function init() {
-  const user = getCurrentUser();
-  els.requestByLabel.textContent = user.name;
-})();
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.field-row.two { grid-template-columns: 1fr 1fr; }
+.field-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+@media (min-width: 480px) {
+  .field-row { grid-template-columns: 1fr 1fr; }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+.field-row .field { margin-bottom: 0; }
+
+label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+input, select {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+input:focus, select:focus {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--rust);
+}
+input[readonly] {
+  background: #f1efe7;
+  color: var(--ink-soft);
+}
+select:disabled {
+  background: #f1efe7;
+  color: #9a9a92;
+}
+
+.combobox {
+  position: relative;
+}
+.combobox-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(28, 35, 33, 0.1);
+  z-index: 20;
+}
+.combobox-item {
+  padding: 10px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1efe7;
+}
+.combobox-item:last-child { border-bottom: none; }
+.combobox-item:hover,
+.combobox-item.active {
+  background: var(--moss-bg);
+}
+.combobox-item .code {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.combobox-empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 18px 0;
+}
+
+.btn-submit {
+  width: 100%;
+  padding: 13px;
+  margin-top: 6px;
+  background: var(--rust);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.btn-submit:hover { background: var(--rust-dark); }
+.btn-submit:disabled {
+  background: #c9c4b6;
+  cursor: not-allowed;
+}
+
+.form-msg {
+  font-size: 13px;
+  margin-top: 12px;
+  min-height: 18px;
+}
+.form-msg.success { color: var(--moss); }
+.form-msg.error { color: var(--danger); }
+
+.footnote {
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 16px;
+}
