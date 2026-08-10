@@ -47,7 +47,7 @@ async function login(id, password) {
   const pw = passwords.find((p) => String(p.Id) === String(id));
   if (!pw) throw new Error("User tidak ditemukan.");
   if (pw.IsActive !== true && pw.IsActive !== "TRUE") throw new Error("Akun tidak aktif.");
-  if (String(pw.PasswordHash) !== String(password)) throw new Error("Password salah.");
+  if (String(pw.PasswordHas) !== String(password)) throw new Error("Password salah.");
 
   const karyawanRow = karyawan.find((k) => String(k.Id) === String(id));
 
