@@ -210,3 +210,56 @@ select:disabled {
   color: var(--ink-soft);
   margin-top: 16px;
 }
+
+/* ==== Navigation / Login page ==== */
+.logout-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #444a43;
+  color: #f6f4ee;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.logout-btn:hover { background: #2a302b; }
+.topbar-inner { position: relative; }
+.logout-btn { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); }
+
+.login-card { max-width: 380px; margin: 0 auto; }
+.login-card .eyebrow { display: block; }
+.login-card h1 { margin-bottom: 4px; }
+.login-card .sub { margin-bottom: 18px; }
+.login-card .field { margin-bottom: 14px; }
+.login-card .btn-submit { margin-top: 4px; }
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 20px;
+}
+@media (min-width: 480px) {
+  .menu-grid { grid-template-columns: 1fr 1fr; }
+}
+.menu-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+.menu-tile:hover { border-color: var(--rust); }
+.menu-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.menu-desc {
+  font-size: 13px;
+  color: var(--ink-soft);
+}

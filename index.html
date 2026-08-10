@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMMS-BIMA — Material Request</title>
+<title>SMMS-BIMA</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,107 +12,60 @@
   <div class="topbar-inner">
     <span class="mark">SMMS</span>
     <span class="site-name">BIMA</span>
+    <button id="logoutBtn" class="logout-btn" hidden>Logout</button>
   </div>
 </header>
 
 <main class="wrap">
-  <div class="page-head">
-    <span class="eyebrow">Material request</span>
-    <h1>Ajukan permintaan material</h1>
-    <p class="sub">Pilih kelompok, cari item, lalu lengkapi jumlah dan kebutuhan. Permintaan dikirim ke HO untuk diproses.</p>
-  </div>
 
-  <form id="requestForm" class="card" autocomplete="off">
+  <section id="loginSection" class="card login-card">
+    <span class="eyebrow">Masuk</span>
+    <h1>Login</h1>
+    <p class="sub">Masukkan ID dan PIN kamu untuk melanjutkan.</p>
 
-    <div class="field-row">
+    <form id="loginForm" autocomplete="off">
       <div class="field">
-        <label for="itemGroup">Kelompok item</label>
-        <select id="itemGroup" required>
-          <option value="" disabled selected>Pilih kelompok</option>
-          <option value="Material">Material</option>
-          <option value="Consumables">Consumables</option>
-          <option value="Tools">Tools</option>
-          <option value="HeavyEquipment">Heavy equipment</option>
-        </select>
+        <label for="loginId">ID</label>
+        <input type="text" id="loginId" inputmode="numeric" required placeholder="cth. 1">
       </div>
       <div class="field">
-        <label for="itemSearch">Item</label>
-        <div class="combobox">
-          <input type="text" id="itemSearch" placeholder="Pilih kelompok dulu" disabled autocomplete="off">
-          <input type="hidden" id="itemSelectedIndex">
-          <div id="itemResults" class="combobox-list" hidden></div>
-        </div>
+        <label for="loginPin">PIN</label>
+        <input type="password" id="loginPin" inputmode="numeric" required placeholder="••••••">
       </div>
+      <div id="loginMsg" class="form-msg" role="status" aria-live="polite"></div>
+      <button type="submit" id="loginBtn" class="btn-submit">Masuk</button>
+    </form>
+  </section>
+
+  <section id="menuSection" class="menu-section" hidden>
+    <div class="page-head">
+      <span class="eyebrow">Menu utama</span>
+      <h1>Halo, <span id="userName">—</span></h1>
+      <p class="sub">Pilih menu yang ingin kamu buka.</p>
     </div>
 
-    <div class="field-row three">
-      <div class="field">
-        <label for="itemCode">Item code</label>
-        <input type="text" id="itemCode" readonly placeholder="—">
-      </div>
-      <div class="field">
-        <label for="unit">Satuan</label>
-        <input type="text" id="unit" readonly placeholder="—">
-      </div>
-      <div class="field">
-        <label for="qty">Jumlah</label>
-        <input type="number" id="qty" min="1" step="1" required placeholder="0">
-      </div>
+    <div class="menu-grid">
+      <a href="request.html" id="menuRequest" class="menu-tile" hidden>
+        <span class="menu-title">Request</span>
+        <span class="menu-desc">Ajukan permintaan material</span>
+      </a>
+      <a href="received.html" id="menuReceived" class="menu-tile" hidden>
+        <span class="menu-title">Received material</span>
+        <span class="menu-desc">Konfirmasi material diterima</span>
+      </a>
+      <a href="distribusi.html" id="menuDistribusi" class="menu-tile" hidden>
+        <span class="menu-title">Distribusi</span>
+        <span class="menu-desc">Serah terima ke end user</span>
+      </a>
     </div>
 
-    <div class="field-row two" id="durationRow" hidden>
-      <div class="field">
-        <label for="duration">Durasi sewa</label>
-        <input type="number" id="duration" min="1" step="1" placeholder="0">
-      </div>
-      <div class="field">
-        <label for="durUnit">Satuan durasi</label>
-        <select id="durUnit">
-          <option value="Hari">Hari</option>
-          <option value="Minggu">Minggu</option>
-          <option value="Bulan">Bulan</option>
-        </select>
-      </div>
-    </div>
+    <p id="noAccessMsg" class="form-msg error" hidden>Akun kamu belum punya akses ke menu manapun. Hubungi admin.</p>
+  </section>
 
-    <hr class="divider">
-
-    <div class="field-row two">
-      <div class="field">
-        <label for="projectId">Project ID</label>
-        <input type="text" id="projectId" required placeholder="cth. 101">
-      </div>
-      <div class="field">
-        <label for="woNo">Nomor WO</label>
-        <input type="text" id="woNo" required placeholder="cth. WO-2026-001">
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="purpose">Keperluan</label>
-      <input type="text" id="purpose" required placeholder="Untuk keperluan apa material ini dipakai">
-    </div>
-
-    <div class="field-row two">
-      <div class="field">
-        <label for="refNo">Nomor referensi</label>
-        <input type="text" id="refNo" placeholder="cth. REF-001 (opsional)">
-      </div>
-      <div class="field">
-        <label for="expectedDate">Tanggal dibutuhkan</label>
-        <input type="date" id="expectedDate" required>
-      </div>
-    </div>
-
-    <div id="formMsg" class="form-msg" role="status" aria-live="polite"></div>
-
-    <button type="submit" id="submitBtn" class="btn-submit">Kirim permintaan</button>
-  </form>
-
-  <p class="footnote">Diajukan oleh <span id="requestByLabel">—</span></p>
 </main>
 
 <script src="config.js"></script>
-<script src="script.js"></script>
+<script src="auth.js"></script>
+<script src="nav.js"></script>
 </body>
 </html>

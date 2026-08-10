@@ -23,10 +23,11 @@ const els = {
   requestByLabel: document.getElementById("requestByLabel"),
 };
 
-// ==== Smart Gate integration placeholder ====
-// TODO: ganti dengan pemanggilan API Smart Gate yang sesungguhnya
+// ==== auth guard ====
+const currentSession = requireAuth("Request");
+
 function getCurrentUser() {
-  return { id: "dummy_user", name: "Dummy User" };
+  return { id: currentSession ? currentSession.id : "", name: currentSession ? currentSession.nama : "—" };
 }
 
 // ==== load resources (dengan cache session) ====
