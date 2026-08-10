@@ -36,10 +36,12 @@
         </select>
       </div>
       <div class="field">
-        <label for="itemSelect">Item</label>
-        <select id="itemSelect" required disabled>
-          <option value="" disabled selected>Pilih kelompok dulu</option>
-        </select>
+        <label for="itemSearch">Item</label>
+        <div class="combobox">
+          <input type="text" id="itemSearch" placeholder="Pilih kelompok dulu" disabled autocomplete="off">
+          <input type="hidden" id="itemSelectedIndex">
+          <div id="itemResults" class="combobox-list" hidden></div>
+        </div>
       </div>
     </div>
 
