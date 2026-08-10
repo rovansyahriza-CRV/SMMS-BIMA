@@ -37,17 +37,17 @@ async function fetchKaryawanSheet(sheet) {
   return data;
 }
 
-// ==== Login: cocokkan Id + PIN ke PasswordTbl, ambil nama dari KaryawanTbl ====
-async function login(id, pin) {
+// ==== Login: cocokkan Id + Password ke PasswordTbl, ambil nama dari KaryawanTbl ====
+async function login(id, password) {
   const [passwords, karyawan] = await Promise.all([
     fetchKaryawanSheet("PasswordTbl"),
     fetchKaryawanSheet("KaryawanTbl"),
   ]);
 
   const pw = passwords.find((p) => String(p.Id) === String(id));
-  if (!pw) throw new Error("ID tidak ditemukan.");
+  if (!pw) throw new Error("User tidak ditemukan.");
   if (pw.IsActive !== true && pw.IsActive !== "TRUE") throw new Error("Akun tidak aktif.");
-  if (String(pw.PIN) !== String(pin)) throw new Error("PIN salah.");
+  if (String(pw.PasswordHash) !== String(password)) throw new Error("Password salah.");
 
   const karyawanRow = karyawan.find((k) => String(k.Id) === String(id));
 

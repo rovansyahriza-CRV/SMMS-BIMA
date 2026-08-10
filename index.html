@@ -25,12 +25,14 @@
 
     <form id="loginForm" autocomplete="off">
       <div class="field">
-        <label for="loginId">ID</label>
-        <input type="text" id="loginId" inputmode="numeric" required placeholder="cth. 1">
+        <label for="loginId">Nama</label>
+        <select id="loginId" required disabled>
+          <option value="" disabled selected>Memuat daftar user...</option>
+        </select>
       </div>
       <div class="field">
-        <label for="loginPin">PIN</label>
-        <input type="password" id="loginPin" inputmode="numeric" required placeholder="••••••">
+        <label for="loginPin">Password</label>
+        <input type="password" id="loginPin" required placeholder="••••••">
       </div>
       <div id="loginMsg" class="form-msg" role="status" aria-live="polite"></div>
       <button type="submit" id="loginBtn" class="btn-submit">Masuk</button>

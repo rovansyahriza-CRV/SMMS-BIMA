@@ -37,6 +37,24 @@ function showLogin() {
   nav.logoutBtn.hidden = true;
 }
 
+async function populateUserDropdown() {
+  try {
+    const karyawan = await fetchKaryawanSheet("KaryawanTbl");
+    nav.loginId.innerHTML = `<option value="" disabled selected>Pilih nama</option>`;
+    karyawan.forEach((k) => {
+      const opt = document.createElement("option");
+      opt.value = k.Id;
+      opt.textContent = k.NamaPersonnel;
+      nav.loginId.appendChild(opt);
+    });
+    nav.loginId.disabled = false;
+  } catch (err) {
+    nav.loginId.innerHTML = `<option value="" disabled selected>Gagal memuat daftar user</option>`;
+    nav.loginMsg.textContent = "Gagal memuat daftar user: " + err.message;
+    nav.loginMsg.className = "form-msg error";
+  }
+}
+
 nav.loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   nav.loginMsg.textContent = "";
@@ -69,5 +87,6 @@ nav.logoutBtn.addEventListener("click", () => {
     showMenu(session);
   } else {
     showLogin();
+    populateUserDropdown();
   }
 })();
