@@ -3,7 +3,9 @@ let currentItems = [];
 
 const els = {
   itemGroup: document.getElementById("itemGroup"),
-  itemSelect: document.getElementById("itemSelect"),
+  itemSearch: document.getElementById("itemSearch"),
+  itemSelectedIndex: document.getElementById("itemSelectedIndex"),
+  itemResults: document.getElementById("itemResults"),
   itemCode: document.getElementById("itemCode"),
   unit: document.getElementById("unit"),
   qty: document.getElementById("qty"),
@@ -45,33 +47,78 @@ els.itemGroup.addEventListener("change", async () => {
   const group = els.itemGroup.value;
   resetItemFields();
 
-  els.itemSelect.disabled = true;
-  els.itemSelect.innerHTML = `<option value="" disabled selected>Memuat...</option>`;
+  els.itemSearch.disabled = true;
+  els.itemSearch.value = "";
+  els.itemSearch.placeholder = "Memuat item...";
+  els.itemResults.hidden = true;
 
   els.durationRow.hidden = !RENTAL_GROUPS.includes(group);
 
   try {
     currentItems = await loadResourceItems(group);
-    els.itemSelect.innerHTML = `<option value="" disabled selected>Pilih item</option>`;
-    currentItems.forEach((item, i) => {
-      const opt = document.createElement("option");
-      opt.value = i;
-      opt.textContent = `${item.Group} — ${item.Specification} (${item.Size || "-"})`;
-      els.itemSelect.appendChild(opt);
-    });
-    els.itemSelect.disabled = false;
+    els.itemSearch.placeholder = `Ketik untuk cari (${currentItems.length} item)`;
+    els.itemSearch.disabled = false;
   } catch (err) {
-    els.itemSelect.innerHTML = `<option value="" disabled selected>Gagal memuat item</option>`;
+    els.itemSearch.placeholder = "Gagal memuat item";
     showMsg("Gagal memuat daftar item: " + err.message, "error");
   }
 });
 
-els.itemSelect.addEventListener("change", () => {
-  const item = currentItems[els.itemSelect.value];
+els.itemSearch.addEventListener("input", () => {
+  els.itemSelectedIndex.value = "";
+  resetItemFields();
+  renderItemResults(els.itemSearch.value.trim().toLowerCase());
+});
+
+els.itemSearch.addEventListener("focus", () => {
+  if (els.itemSearch.value.trim() !== "") {
+    renderItemResults(els.itemSearch.value.trim().toLowerCase());
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!els.itemResults.contains(e.target) && e.target !== els.itemSearch) {
+    els.itemResults.hidden = true;
+  }
+});
+
+function renderItemResults(query) {
+  const filtered = query
+    ? currentItems.filter((item) => {
+        const haystack = `${item.Specification} ${item.Size || ""} ${item.Item_Code || ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+    : currentItems;
+
+  els.itemResults.innerHTML = "";
+
+  if (filtered.length === 0) {
+    els.itemResults.innerHTML = `<div class="combobox-empty">Item tidak ditemukan</div>`;
+    els.itemResults.hidden = false;
+    return;
+  }
+
+  filtered.slice(0, 50).forEach((item) => {
+    const realIndex = currentItems.indexOf(item);
+    const row = document.createElement("div");
+    row.className = "combobox-item";
+    row.innerHTML = `${item.Specification} <span class="code">${item.Size ? "· " + item.Size : ""} ${item.Item_Code ? "· " + item.Item_Code : ""}</span>`;
+    row.addEventListener("click", () => selectItem(realIndex));
+    els.itemResults.appendChild(row);
+  });
+
+  els.itemResults.hidden = false;
+}
+
+function selectItem(index) {
+  const item = currentItems[index];
   if (!item) return;
+  els.itemSelectedIndex.value = index;
+  els.itemSearch.value = item.Specification;
   els.itemCode.value = item.Item_Code || item.ID || "";
   els.unit.value = item.Unit || "";
-});
+  els.itemResults.hidden = true;
+}
 
 function resetItemFields() {
   els.itemCode.value = "";
@@ -83,9 +130,9 @@ els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
   showMsg("", "");
 
-  const item = currentItems[els.itemSelect.value];
+  const item = currentItems[els.itemSelectedIndex.value];
   if (!item) {
-    showMsg("Pilih item terlebih dahulu.", "error");
+    showMsg("Pilih item dari daftar pencarian terlebih dahulu.", "error");
     return;
   }
 
@@ -126,8 +173,10 @@ els.form.addEventListener("submit", async (e) => {
     if (result.success) {
       showMsg(`Permintaan berhasil dikirim (ID #${result.id}).`, "success");
       els.form.reset();
-      els.itemSelect.innerHTML = `<option value="" disabled selected>Pilih kelompok dulu</option>`;
-      els.itemSelect.disabled = true;
+      els.itemSearch.value = "";
+      els.itemSearch.placeholder = "Pilih kelompok dulu";
+      els.itemSearch.disabled = true;
+      els.itemSelectedIndex.value = "";
       els.durationRow.hidden = true;
       resetItemFields();
     } else {
