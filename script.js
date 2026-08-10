@@ -85,7 +85,7 @@ document.addEventListener("click", (e) => {
 function renderItemResults(query) {
   const filtered = query
     ? currentItems.filter((item) => {
-        const haystack = `${item.Specification} ${item.Size || ""} ${item.Item_Code || ""}`.toLowerCase();
+        const haystack = `${item.Group || ""} ${item.Specification} ${item.Size || ""} ${item.Item_Code || ""}`.toLowerCase();
         return haystack.includes(query);
       })
     : currentItems;
@@ -102,7 +102,7 @@ function renderItemResults(query) {
     const realIndex = currentItems.indexOf(item);
     const row = document.createElement("div");
     row.className = "combobox-item";
-    row.innerHTML = `${item.Specification} <span class="code">${item.Size ? "· " + item.Size : ""} ${item.Item_Code ? "· " + item.Item_Code : ""}</span>`;
+    row.innerHTML = `${item.Specification} <span class="code">${item.Group ? "· " + item.Group : ""}${item.Size ? " · " + item.Size : ""}${item.Item_Code ? " · " + item.Item_Code : ""}</span>`;
     row.addEventListener("click", () => selectItem(realIndex));
     els.itemResults.appendChild(row);
   });
