@@ -114,7 +114,7 @@ function selectItem(index) {
   const item = currentItems[index];
   if (!item) return;
   els.itemSelectedIndex.value = index;
-  els.itemSearch.value = item.Specification;
+  els.itemSearch.value = `${item.Group ? item.Group + " — " : ""}${item.Specification}${item.Size ? " (" + item.Size + ")" : ""}`;
   els.itemCode.value = item.Item_Code || item.ID || "";
   els.unit.value = item.Unit || "";
   els.itemResults.hidden = true;
