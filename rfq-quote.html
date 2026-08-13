@@ -93,22 +93,22 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
   const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "-";
   const vendorName = vendorInfo ? vendorInfo.VendorName : "-";
 
-  let rows = items.map((item, idx) => {
-    const req = requestData.find(r => String(r.ID) === String(item.RequestID));
-    const expectedDate = req ? req.ExpectedDate : "";
+let rows = items.map((item, idx) => {
+  const req = requestData.find(r => String(r.ID) === String(item.RequestID));
+  const expectedDate = req ? req.ExpectedDate : "-";
 
-    return `
-      <tr data-sync-id="${item.SyncID}">
-        <td>${idx + 1}</td>
-        <td>${item.ItemDescription}</td>
-        <td>${item.Qty} ${item.Unit}</td>
-        <td><input type="text" class="itemdesc" placeholder="cth: merk/spek"></td>
-        <td><input type="number" class="price" min="0" required></td>
-        <td><input type="text" class="leadtime" value="${expectedDate || ''}" placeholder="cth: 7 hari"></td>
-        <td><input type="text" class="notes"></td>
-      </tr>
-    `;
-  }).join("");
+  return `
+    <tr data-sync-id="${item.SyncID}">
+      <td>${idx + 1}</td>
+      <td>${item.ItemDescription}<br><small>Dibutuhkan: ${expectedDate}</small></td>
+      <td>${item.Qty} ${item.Unit}</td>
+      <td><input type="text" class="itemdesc" placeholder="cth: merk/spek"></td>
+      <td><input type="number" class="price" min="0" required></td>
+      <td><input type="date" class="deliverydate" required></td>
+      <td><input type="text" class="notes"></td>
+    </tr>
+  `;
+}).join("");
 
   document.getElementById("app").innerHTML = `
     <h2>Input Penawaran Harga</h2>
@@ -151,27 +151,27 @@ async function submitQuotes(items) {
   const now = new Date().toISOString();
 
   try {
-    for (let idx = 0; idx < rows.length; idx++) {
-      const row = rows[idx];
-      const item = items[idx];
-      const desc = row.querySelector(".itemdesc").value;
-      const price = row.querySelector(".price").value;
-      const leadtime = row.querySelector(".leadtime").value;
-      const notes = row.querySelector(".notes").value;
-
-      const payload = {
-        target: "RFQQuoteTbl",
-        data: {
-          ParentSyncID: item.SyncID,
-          VendorID: Number(vendorParam),
-          VendorItemDescription: desc,
-          Qty: item.Qty,
-          UnitPrice: Number(price),
-          QuoteDate: now,
-          LeadTime: leadtime,
-          Notes: notes
-        }
-      };
+  for (let idx = 0; idx < rows.length; idx++) {
+    const row = rows[idx];
+    const item = items[idx];
+    const desc = row.querySelector(".itemdesc").value;
+    const price = row.querySelector(".price").value;
+    const deliveryDate = row.querySelector(".deliverydate").value;
+    const notes = row.querySelector(".notes").value;
+  
+    const payload = {
+      target: "RFQQuoteTbl",
+      data: {
+        ParentSyncID: item.SyncID,
+        VendorID: Number(vendorParam),
+        VendorItemDescription: desc,
+        Qty: item.Qty,
+        UnitPrice: Number(price),
+        QuoteDate: now,
+        VendorDeliveryDate: deliveryDate,
+        Notes: notes
+      }
+    };
 
       const res = await fetch(API_URL, {
         method: "POST",
