@@ -96,18 +96,17 @@ function renderForm(rfqHeader, vendorInfo, items) {
   const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "-";
   const vendorName = vendorInfo ? vendorInfo.VendorName : "-";
 
-let rows = items.map((item, idx) => `
-  <tr data-sync-id="${item.SyncID}" data-qty="${item.Qty}">
-    <td>${idx + 1}</td>
-    <td>
-      <input type="text" class="itemdesc" value="${item.ItemDescription}">
-      <br><small>${item.Qty} ${item.Unit}</small>
-    </td>
-    <td><input type="number" class="price" min="0" required></td>
-    <td><input type="text" class="leadtime" placeholder="cth: 7 hari"></td>
-    <td><input type="text" class="notes"></td>
-  </tr>
-`).join("");
+  let rows = items.map((item, idx) => `
+    <tr data-sync-id="${item.SyncID}">
+      <td>${idx + 1}</td>
+      <td>${item.ItemDescription}</td>
+      <td>${item.Qty} ${item.Unit}</td>
+      <td><input type="text" class="itemdesc" placeholder="cth: merk/spek yang ditawarkan"></td>
+      <td><input type="number" class="price" min="0" required></td>
+      <td><input type="text" class="leadtime" placeholder="cth: 7 hari"></td>
+      <td><input type="text" class="notes"></td>
+    </tr>
+  `).join("");
 
   document.getElementById("app").innerHTML = `
     <h2>Input Penawaran Harga</h2>
@@ -118,7 +117,7 @@ let rows = items.map((item, idx) => `
     <form id="quoteForm">
       <table>
         <thead>
-          <tr><th>No</th><th>Item</th><th>Harga Satuan (Rp)</th><th>Lead Time</th><th>Catatan</th></tr>
+          <tr><th>No</th><th>Item</th><th>Qty</th><th>Deskripsi Vendor</th><th>Harga Satuan (Rp)</th><th>Lead Time</th><th>Catatan</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -128,11 +127,11 @@ let rows = items.map((item, idx) => `
 
   document.getElementById("quoteForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    await submitQuotes();
+    await submitQuotes(items);
   });
 }
 
-async function submitQuotes() {
+async function submitQuotes(items) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "Mengirim...";
@@ -141,33 +140,33 @@ async function submitQuotes() {
   const now = new Date().toISOString();
 
   try {
-for (const row of rows) {
-  const itemSyncId = row.dataset.syncId;
-  const qty = row.dataset.qty;
-  const desc = row.querySelector(".itemdesc").value;
-  const price = row.querySelector(".price").value;
-  const leadtime = row.querySelector(".leadtime").value;
-  const notes = row.querySelector(".notes").value;
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const item = items[idx];
+      const desc = row.querySelector(".itemdesc").value;
+      const price = row.querySelector(".price").value;
+      const leadtime = row.querySelector(".leadtime").value;
+      const notes = row.querySelector(".notes").value;
 
-  const payload = {
-    target: "RFQQuoteTbl",
-    data: {
-      ParentSyncID: itemSyncId,
-      VendorID: Number(vendorParam),
-      VendorItemDescription: desc,
-      Qty: Number(qty),
-      UnitPrice: Number(price),
-      QuoteDate: now,
-      LeadTime: leadtime,
-      Notes: notes
-    }
-  };
+      const payload = {
+        target: "RFQQuoteTbl",
+        data: {
+          ParentSyncID: item.SyncID,
+          VendorID: Number(vendorParam),
+          VendorItemDescription: desc,
+          Qty: item.Qty,
+          UnitPrice: Number(price),
+          QuoteDate: now,
+          LeadTime: leadtime,
+          Notes: notes
+        }
+      };
 
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
       const result = await res.json();
       if (!result.success) throw new Error(result.error || "Gagal submit item");
     }
@@ -183,7 +182,6 @@ for (const row of rows) {
     btn.textContent = "Kirim Penawaran";
   }
 }
-
 init();
 </script>
 </body>
