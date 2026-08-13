@@ -45,12 +45,10 @@ async function init() {
     return;
   }
 
-  const [rfqVendorData, rfqData, detailData, vendorData] = await Promise.all([
-    fetchSheet("RFQVendorTbl"),
-    fetchSheet("RFQTbl"),
-    fetchSheet("RFQDetailTbl"),
-    fetchSheet("VendorTbl", RESOURCES_API_URL)
-  ]);
+  const rfqVendorData = await fetchSheet("RFQVendorTbl");
+  const rfqData = await fetchSheet("RFQTbl");
+  const detailData = await fetchSheet("RFQDetailTbl");
+  const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
 
   const invitation = rfqVendorData.find(v =>
     String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
