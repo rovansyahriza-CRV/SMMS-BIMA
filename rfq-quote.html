@@ -100,7 +100,7 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
   let rows = items.map((item, idx) => {
     const req = requestData.find(r => String(r.ID) === String(item.RequestID));
     const expectedDate = req ? req.ExpectedDate : "-";
-  
+
     return `
       <tr data-sync-id="${item.SyncID}">
         <td>${idx + 1}</td>
@@ -124,7 +124,7 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
       <table>
         <colgroup>
           <col style="width:4%">
-          <col style="width:18%">
+          <col style="width:10%">
           <col style="width:8%">
           <col style="width:26%">
           <col style="width:12%">
@@ -132,20 +132,59 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
           <col style="width:26%">
         </colgroup>
         <thead>
-          <tr><th>No</th><th>Item</th><th>Qty</th><th>Deskripsi Vendor</th><th>Harga Satuan (Rp)</th><th>Lead Time</th><th>Catatan</th></tr>
+          <tr><th>No</th><th>Item</th><th>Qty</th><th>Deskripsi Vendor</th><th>Harga Satuan (Rp)</th><th>Tanggal Kirim</th><th>Catatan</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
+
+      <div class="summary">
+        <div class="summary-row">
+          <span>Subtotal</span>
+          <span id="subtotalDisplay">Rp 0</span>
+        </div>
+        <div class="summary-row">
+          <label><input type="checkbox" id="ppnCheckbox"> Sertakan PPN (11%)</label>
+        </div>
+        <div class="summary-row total">
+          <span>Total Harga</span>
+          <span id="totalDisplay">Rp 0</span>
+        </div>
+      </div>
+
       <button type="submit" id="submitBtn">Kirim Penawaran</button>
     </form>
   `;
+
+  function calculateSummary() {
+    const qtyInputs = document.querySelectorAll("#quoteForm .qty");
+    const priceInputs = document.querySelectorAll("#quoteForm .price");
+    let subtotal = 0;
+
+    for (let i = 0; i < qtyInputs.length; i++) {
+      const qty = parseFloat(qtyInputs[i].value) || 0;
+      const price = parseFloat(priceInputs[i].value) || 0;
+      subtotal += qty * price;
+    }
+
+    const ppnChecked = document.getElementById("ppnCheckbox").checked;
+    const total = ppnChecked ? subtotal * 1.11 : subtotal;
+
+    document.getElementById("subtotalDisplay").textContent = "Rp " + subtotal.toLocaleString("id-ID");
+    document.getElementById("totalDisplay").textContent = "Rp " + total.toLocaleString("id-ID");
+  }
+
+  document.querySelectorAll("#quoteForm .qty, #quoteForm .price").forEach(el => {
+    el.addEventListener("input", calculateSummary);
+  });
+  document.getElementById("ppnCheckbox").addEventListener("change", calculateSummary);
+  calculateSummary();
 
   document.getElementById("quoteForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     await submitQuotes(items);
   });
 }
-
+  
 async function submitQuotes(items) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
