@@ -27,17 +27,8 @@
 
 <script>
 const API_URL = "https://script.google.com/macros/s/AKfycbzdW_BlUsleChcWmNowZutZNbenNDOvu1S4oVdBl_lCQ_efc1VJVX4cE9_o9oYuJlLu/exec";
-
-const params = new URLSearchParams(window.location.search);
-const rfqSyncId = params.get("rfq");     // sekarang SyncID (GUID), bukan RFQID numerik
-const vendorParam = params.get("vendor"); // VendorID numerik, tetap aman (master data)
-
-async function fetchSheet(sheetName) {
-  const res = await fetch(`${API_URL}?sheet=${sheetName}`);
-  const json = await res.json();
-  return json.data || json;
-}
-
+const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
+  
 async function init() {
   if (!rfqSyncId || !vendorParam) {
     showError("Link tidak lengkap. Pastikan Anda membuka link dari email undangan RFQ.");
