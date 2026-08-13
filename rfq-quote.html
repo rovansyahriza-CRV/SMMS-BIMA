@@ -45,11 +45,14 @@ async function init() {
     return;
   }
 
-  const rfqVendorData = await fetchSheet("RFQVendorTbl");
-  const rfqData = await fetchSheet("RFQTbl");
-  const detailData = await fetchSheet("RFQDetailTbl");
-  const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
+const rfqVendorData = await fetchSheet("RFQVendorTbl");
+const rfqData = await fetchSheet("RFQTbl");
+const detailData = await fetchSheet("RFQDetailTbl");
 
+await new Promise(resolve => setTimeout(resolve, 800));
+
+const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
+ 
   const invitation = rfqVendorData.find(v =>
     String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
   );
