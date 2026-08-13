@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Input Penawaran RFQ</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 0 16px; color: #2C3E50; }
+  h2 { margin-bottom: 4px; }
+  .meta { color: #666; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; text-align: left; }
+  th { background: #2C3E50; color: white; }
+  input { width: 100%; padding: 6px; box-sizing: border-box; font-size: 14px; }
+  button { background: #C0392B; color: white; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; }
+  button:disabled { background: #999; }
+  #error, #success { padding: 12px; border-radius: 4px; margin-bottom: 16px; display: none; }
+  #error { background: #FADBD8; color: #C0392B; }
+  #success { background: #D5F4E6; color: #1E8449; }
+</style>
+</head>
+<body>
+
+<div id="error"></div>
+<div id="success"></div>
+<div id="app">Memuat data RFQ...</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbzdW_BlUsleChcWmNowZutZNbenNDOvu1S4oVdBl_lCQ_efc1VJVX4cE9_o9oYuJlLu/exec";
+
+const params = new URLSearchParams(window.location.search);
+const rfqSyncId = params.get("rfq");     // sekarang SyncID (GUID), bukan RFQID numerik
+const vendorParam = params.get("vendor"); // VendorID numerik, tetap aman (master data)
+
+async function fetchSheet(sheetName) {
+  const res = await fetch(`${API_URL}?sheet=${sheetName}`);
+  const json = await res.json();
+  return json.data || json;
+}
+
+async function init() {
+  if (!rfqSyncId || !vendorParam) {
+    showError("Link tidak lengkap. Pastikan Anda membuka link dari email undangan RFQ.");
+    return;
+  }
+
+  const [rfqVendorData, rfqData, detailData, vendorData] = await Promise.all([
+    fetchSheet("RFQVendorTbl"),
+    fetchSheet("RFQTbl"),
+    fetchSheet("RFQDetailTbl"),
+    fetchSheet("VendorTbl")
+  ]);
+
+  const invitation = rfqVendorData.find(v =>
+    String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
+  );
+
+  if (!invitation) {
+    showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
+    return;
+  }
+
+  const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
+  const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
+  const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
+
+  if (items.length === 0) {
+    showError("RFQ ini belum memiliki item.");
+    return;
+  }
+
+  renderForm(rfqHeader, vendorInfo, items);
+}
+
+function showError(msg) {
+  const el = document.getElementById("error");
+  el.textContent = msg;
+  el.style.display = "block";
+  document.getElementById("app").innerHTML = "";
+}
+
+function renderForm(rfqHeader, vendorInfo, items) {
+  const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "-";
+  const vendorName = vendorInfo ? vendorInfo.VendorName : "-";
+
+  let rows = items.map((item, idx) => `
+    <tr data-sync-id="${item.SyncID}" data-desc="${item.ItemDescription}">
+      <td>${idx + 1}</td>
+      <td>${item.ItemDescription}<br><small>${item.Qty} ${item.Unit}</small></td>
+      <td><input type="number" class="price" min="0" required></td>
+      <td><input type="text" class="leadtime" placeholder="cth: 7 hari"></td>
+      <td><input type="text" class="notes"></td>
+    </tr>
+  `).join("");
+
+  document.getElementById("app").innerHTML = `
+    <h2>Input Penawaran Harga</h2>
+    <div class="meta">
+      No RFQ: <strong>${noRFQ}</strong><br>
+      Vendor: <strong>${vendorName}</strong>
+    </div>
+    <form id="quoteForm">
+      <table>
+        <thead>
+          <tr><th>No</th><th>Item</th><th>Harga Satuan (Rp)</th><th>Lead Time</th><th>Catatan</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button type="submit" id="submitBtn">Kirim Penawaran</button>
+    </form>
+  `;
+
+  document.getElementById("quoteForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await submitQuotes();
+  });
+}
+
+async function submitQuotes() {
+  const btn = document.getElementById("submitBtn");
+  btn.disabled = true;
+  btn.textContent = "Mengirim...";
+
+  const rows = document.querySelectorAll("#quoteForm tbody tr");
+  const now = new Date().toISOString();
+
+  try {
+    for (const row of rows) {
+      const itemSyncId = row.dataset.syncId;
+      const desc = row.dataset.desc;
+      const price = row.querySelector(".price").value;
+      const leadtime = row.querySelector(".leadtime").value;
+      const notes = row.querySelector(".notes").value;
+
+      const payload = {
+        target: "RFQQuoteTbl",
+        data: {
+          ParentSyncID: itemSyncId,
+          VendorID: Number(vendorParam),
+          VendorItemDescription: desc,
+          UnitPrice: Number(price),
+          QuoteDate: now,
+          LeadTime: leadtime,
+          Notes: notes
+        }
+      };
+
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || "Gagal submit item");
+    }
+
+    document.getElementById("app").innerHTML = "";
+    const successEl = document.getElementById("success");
+    successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
+    successEl.style.display = "block";
+
+  } catch (err) {
+    showError("Gagal mengirim penawaran: " + err.message);
+    btn.disabled = false;
+    btn.textContent = "Kirim Penawaran";
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>
