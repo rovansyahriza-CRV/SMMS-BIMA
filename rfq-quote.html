@@ -33,10 +33,20 @@ const params = new URLSearchParams(window.location.search);
 const rfqSyncId = params.get("rfq");
 const vendorParam = params.get("vendor");
 
-async function fetchSheet(sheetName, baseUrl = API_URL) {
-  const res = await fetch(`${baseUrl}?sheet=${sheetName}`);
-  const json = await res.json();
-  return json.data || json;
+async function fetchSheet(sheetName, baseUrl = API_URL, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${baseUrl}?sheet=${sheetName}`);
+      const text = await res.text();
+      const json = JSON.parse(text);
+      return json.data || json;
+    } catch (err) {
+      if (attempt === retries) {
+        throw new Error(`Gagal memuat data '${sheetName}' setelah ${retries} percobaan: ${err.message}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 700 * attempt));
+    }
+  }
 }
 
 async function init() {
@@ -45,35 +55,36 @@ async function init() {
     return;
   }
 
-  const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
+  try {
+    const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
+    const rfqVendorData = await fetchSheet("RFQVendorTbl");
+    const rfqData = await fetchSheet("RFQTbl");
+    const detailData = await fetchSheet("RFQDetailTbl");
 
-  await new Promise(resolve => setTimeout(resolve, 2000));
+    const invitation = rfqVendorData.find(v =>
+      String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
+    );
 
-  const rfqVendorData = await fetchSheet("RFQVendorTbl");
-  const rfqData = await fetchSheet("RFQTbl");
-  const detailData = await fetchSheet("RFQDetailTbl");
+    if (!invitation) {
+      showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
+      return;
+    }
 
-  const invitation = rfqVendorData.find(v =>
-    String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
-  );
+    const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
+    const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
+    const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
 
-  if (!invitation) {
-    showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
-    return;
+    if (items.length === 0) {
+      showError("RFQ ini belum memiliki item.");
+      return;
+    }
+
+    renderForm(rfqHeader, vendorInfo, items);
+  } catch (err) {
+    showError("Terjadi kendala memuat data: " + err.message + " Silakan muat ulang halaman.");
   }
-
-  const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
-  const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
-  const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
-
-  if (items.length === 0) {
-    showError("RFQ ini belum memiliki item.");
-    return;
-  }
-
-  renderForm(rfqHeader, vendorInfo, items);
 }
-
+  
 function showError(msg) {
   const el = document.getElementById("error");
   el.textContent = msg;
