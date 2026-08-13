@@ -55,31 +55,27 @@ async function init() {
     showError("Link tidak lengkap. Pastikan Anda membuka link dari email undangan RFQ.");
     return;
   }
-
   try {
     const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
     const rfqVendorData = await fetchSheet("RFQVendorTbl");
     const rfqData = await fetchSheet("RFQTbl");
     const detailData = await fetchSheet("RFQDetailTbl");
+    const requestData = await fetchSheet("RequestTbl", REQUEST_API_URL);
 
     const invitation = rfqVendorData.find(v =>
       String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
     );
-
     if (!invitation) {
       showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
       return;
     }
-
     const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
     const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
     const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
-
     if (items.length === 0) {
       showError("RFQ ini belum memiliki item.");
       return;
     }
-
     renderForm(rfqHeader, vendorInfo, items, requestData);
   } catch (err) {
     showError("Terjadi kendala memuat data: " + err.message + " Silakan muat ulang halaman.");
