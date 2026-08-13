@@ -156,28 +156,34 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
   `;
 
   function calculateSummary() {
-  const qtyInputs = document.querySelectorAll("#quoteForm .qty");
-  const priceInputs = document.querySelectorAll("#quoteForm .price");
-  let subtotal = 0;
+    const qtyInputs = document.querySelectorAll("#quoteForm .qty");
+    const priceInputs = document.querySelectorAll("#quoteForm .price");
+    let subtotal = 0;
 
-  for (let i = 0; i < qtyInputs.length; i++) {
-    const qty = parseFloat(qtyInputs[i].value) || 0;
-    const price = parseFloat(priceInputs[i].value) || 0;
-    subtotal += qty * price;
+    for (let i = 0; i < qtyInputs.length; i++) {
+      const qty = parseFloat(qtyInputs[i].value) || 0;
+      const price = parseFloat(priceInputs[i].value) || 0;
+      subtotal += qty * price;
+    }
+
+    const ppnChecked = document.getElementById("ppnCheckbox").checked;
+    const total = ppnChecked ? subtotal * 1.11 : subtotal;
+
+    document.getElementById("subtotalDisplay").textContent = "Rp " + subtotal.toLocaleString("id-ID");
+    document.getElementById("totalDisplay").textContent = "Rp " + total.toLocaleString("id-ID");
   }
 
-  const ppnChecked = document.getElementById("ppnCheckbox").checked;
-  const total = ppnChecked ? subtotal * 1.11 : subtotal;
+  document.querySelectorAll("#quoteForm .qty, #quoteForm .price").forEach(el => {
+    el.addEventListener("input", calculateSummary);
+  });
+  document.getElementById("ppnCheckbox").addEventListener("change", calculateSummary);
+  calculateSummary();
 
-  document.getElementById("subtotalDisplay").textContent = "Rp " + subtotal.toLocaleString("id-ID");
-  document.getElementById("totalDisplay").textContent = "Rp " + total.toLocaleString("id-ID");
+  document.getElementById("quoteForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await submitQuotes(items);
+  });
 }
-
-document.querySelectorAll("#quoteForm .qty, #quoteForm .price").forEach(el => {
-  el.addEventListener("input", calculateSummary);
-});
-document.getElementById("ppnCheckbox").addEventListener("change", calculateSummary);
-calculateSummary();
   
 async function submitQuotes(items) {
   const btn = document.getElementById("submitBtn");
