@@ -123,35 +123,47 @@ async function init() {
   }
 
   try {
-    const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
-    const rfqVendorData = await fetchSheet("RFQVendorTbl");
-    const rfqData = await fetchSheet("RFQTbl");
-    const detailData = await fetchSheet("RFQDetailTbl");
-    const requestData = await fetchSheet("RequestTbl", REQUEST_API_URL);
+const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
+const rfqVendorData = await fetchSheet("RFQVendorTbl");
+const rfqData = await fetchSheet("RFQTbl");
+const detailData = await fetchSheet("RFQDetailTbl");
+const requestData = await fetchSheet("RequestTbl", REQUEST_API_URL);
+const rfqQuoteData = await fetchSheet("RFQQuoteTbl");
 
-    const invitation = rfqVendorData.find(v =>
-      String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
-    );
+const invitation = rfqVendorData.find(v =>
+  String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
+);
 
-    if (!invitation) {
-      showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
-      return;
-    }
+if (!invitation) {
+  showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
+  return;
+}
 
-    const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
-    const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
-    const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
+const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
+const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
+const allItems = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
 
-    if (items.length === 0) {
-      showError("RFQ ini belum memiliki item.");
-      return;
-    }
+if (allItems.length === 0) {
+  showError("RFQ ini belum memiliki item.");
+  return;
+}
 
-    if (invitation.PIN) {
-      showPinGate(rfqHeader, vendorInfo, items, requestData, invitation.PIN);
-    } else {
-      renderForm(rfqHeader, vendorInfo, items, requestData);
-    }
+const alreadyQuotedSyncIDs = rfqQuoteData
+  .filter(q => String(q.VendorID) === vendorParam)
+  .map(q => String(q.ParentSyncID));
+
+const items = allItems.filter(item => !alreadyQuotedSyncIDs.includes(String(item.SyncID)));
+
+if (items.length === 0) {
+  showError("Anda sudah mengirimkan penawaran untuk seluruh item RFQ ini. Terima kasih.");
+  return;
+}
+
+if (invitation.PIN) {
+  showPinGate(rfqHeader, vendorInfo, items, requestData, invitation.PIN);
+} else {
+  renderForm(rfqHeader, vendorInfo, items, requestData);
+}
 
   } catch (err) {
     showError("Terjadi kendala memuat data: " + err.message + " Silakan muat ulang halaman.");
