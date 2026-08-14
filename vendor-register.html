@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registrasi Vendor</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 0 16px; color: #2C3E50; }
+  h2 { margin-bottom: 4px; }
+  .meta { color: #666; margin-bottom: 20px; }
+  label { display: block; margin-top: 14px; font-weight: bold; font-size: 14px; }
+  input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; margin-top: 4px; }
+  button { background: #C0392B; color: white; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; margin-top: 24px; }
+  button:disabled { background: #999; }
+  #error, #success { padding: 12px; border-radius: 4px; margin-bottom: 16px; display: none; }
+  #error { background: #FADBD8; color: #C0392B; }
+  #success { background: #D5F4E6; color: #1E8449; }
+</style>
+</head>
+<body>
+
+<h2>Registrasi Vendor Baru</h2>
+<div class="meta">Isi data perusahaan Anda untuk terdaftar sebagai vendor.</div>
+
+<div id="error"></div>
+<div id="success"></div>
+
+<form id="registerForm">
+  <label>Nama Perusahaan / Vendor *</label>
+  <input type="text" id="vendorName" required>
+
+  <label>Nama Penanggung Jawab (Authorized Name) *</label>
+  <input type="text" id="authorizedName" required>
+
+  <label>No. KTP / ID Penanggung Jawab</label>
+  <input type="text" id="authorizedId">
+
+  <label>Bidang / Spesialisasi</label>
+  <input type="text" id="specialist" placeholder="cth: Material Bangunan, Sewa Alat Berat">
+
+  <label>Kategori</label>
+  <select id="catagory">
+    <option value="">-- Pilih Kategori --</option>
+    <option value="Material">Material</option>
+    <option value="Consumables">Consumables</option>
+    <option value="Tools">Tools</option>
+    <option value="HeavyEquipment">Heavy Equipment</option>
+    <option value="Multi Kategori">Multi Kategori</option>
+  </select>
+
+  <label>Alamat *</label>
+  <textarea id="address" rows="3" required></textarea>
+
+  <label>No. Kontak *</label>
+  <input type="text" id="contactNo" required>
+
+  <label>Email *</label>
+  <input type="email" id="email" required>
+
+  <label>NPWP</label>
+  <input type="text" id="npwp">
+
+  <label>No. Rekening</label>
+  <input type="text" id="rekeningNo">
+
+  <label>Bank</label>
+  <input type="text" id="bank">
+
+  <button type="submit" id="submitBtn">Kirim Registrasi</button>
+</form>
+
+<script>
+const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
+
+document.getElementById("registerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const btn = document.getElementById("submitBtn");
+  btn.disabled = true;
+  btn.textContent = "Mengirim...";
+
+  const payload = {
+    action: "REGISTER",
+    sheetName: "VendorTbl",
+    data: {
+      VendorName: document.getElementById("vendorName").value,
+      AuthorizeName: document.getElementById("authorizedName").value,   // <- dari AuthorizedName jadi AuthorizeName
+      AuthorizeID: document.getElementById("authorizedId").value,       // <- dari AuthorizedID jadi AuthorizeID
+      Specialist: document.getElementById("specialist").value,
+      Catagory: document.getElementById("catagory").value,
+      Address: document.getElementById("address").value,
+      ContactNo: document.getElementById("contactNo").value,
+      Email: document.getElementById("email").value,
+      NPWP: document.getElementById("npwp").value,
+      RekeningNo: document.getElementById("rekeningNo").value,
+      Bank: document.getElementById("bank").value
+    }
+  };
+
+  try {
+    const res = await fetch(RESOURCES_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+
+    if (!result.success) throw new Error(result.error || "Gagal mengirim registrasi");
+
+    document.getElementById("registerForm").style.display = "none";
+    const successEl = document.getElementById("success");
+    successEl.textContent = "Registrasi berhasil dikirim. Tim kami akan meninjau data Anda.";
+    successEl.style.display = "block";
+
+  } catch (err) {
+    const errorEl = document.getElementById("error");
+    errorEl.textContent = "Gagal mengirim registrasi: " + err.message;
+    errorEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Kirim Registrasi";
+  }
+});
+</script>
+</body>
+</html>
