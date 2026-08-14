@@ -3,71 +3,216 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Registrasi Vendor</title>
+<title>Registrasi Vendor - BIMA</title>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 0 16px; color: #2C3E50; }
-  h2 { margin-bottom: 4px; }
-  .meta { color: #666; margin-bottom: 20px; }
-  label { display: block; margin-top: 14px; font-weight: bold; font-size: 14px; }
-  input, select, textarea { width: 100%; padding: 8px; box-sizing: border-box; font-size: 14px; margin-top: 4px; }
-  button { background: #C0392B; color: white; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; margin-top: 24px; }
-  button:disabled { background: #999; }
-  #error, #success { padding: 12px; border-radius: 4px; margin-bottom: 16px; display: none; }
-  #error { background: #FADBD8; color: #C0392B; }
-  #success { background: #D5F4E6; color: #1E8449; }
+  :root {
+    --dark: #3d3d3d;
+    --orange: #e8562c;
+    --bg: #fdf6f3;
+    --text: #2c2c2c;
+    --border: #e6ded9;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 32px 16px;
+    min-height: 100vh;
+  }
+
+  .card {
+    max-width: 640px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(61, 61, 61, 0.14);
+    overflow: hidden;
+  }
+
+  .header {
+    background: #ffffff;
+    padding: 28px 32px 20px;
+    text-align: center;
+    border-bottom: 3px solid var(--orange);
+  }
+
+  .header img {
+    height: 64px;
+    margin-bottom: 12px;
+  }
+
+  .header h1 {
+    color: var(--dark);
+    font-size: 20px;
+    margin: 0 0 4px;
+    font-weight: 700;
+  }
+
+  .header p {
+    color: #8a8a8a;
+    font-size: 13px;
+    margin: 0;
+  }
+
+  .form-body {
+    padding: 28px 32px 32px;
+  }
+
+  label {
+    display: block;
+    margin-top: 18px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--dark);
+  }
+
+  label .req { color: var(--orange); }
+
+  input, select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    box-sizing: border-box;
+    font-size: 14px;
+    margin-top: 6px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    color: var(--text);
+    background: #fdfaf9;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--orange);
+    box-shadow: 0 0 0 3px rgba(232, 86, 44, 0.15);
+    background: #fff;
+  }
+
+  textarea { resize: vertical; }
+
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  button {
+    width: 100%;
+    background: var(--orange);
+    color: white;
+    border: none;
+    padding: 14px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px;
+    margin-top: 28px;
+    transition: background 0.15s;
+  }
+
+  button:hover:not(:disabled) { background: #c8451f; }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+
+  #error, #success {
+    padding: 14px 16px;
+    border-radius: 8px;
+    margin: 0 32px 0;
+    display: none;
+    font-size: 14px;
+  }
+
+  #error { background: #FDEDED; color: #C0392B; border: 1px solid #f5c6c6; }
+  #success { background: #FDF0EB; color: #b7451f; border: 1px solid #f2c9b8; }
+
+  @media (max-width: 480px) {
+    .row2 { grid-template-columns: 1fr; }
+    .header, .form-body { padding-left: 20px; padding-right: 20px; }
+  }
 </style>
 </head>
 <body>
 
-<h2>Registrasi Vendor Baru</h2>
-<div class="meta">Isi data perusahaan Anda untuk terdaftar sebagai vendor.</div>
+<div class="card">
+  <div class="header">
+    <img src="logo-bima.png" alt="BIMA - Bilal Mitra Aryatama">
+    <h1>Registrasi Vendor Baru</h1>
+    <p>Isi data perusahaan Anda untuk terdaftar sebagai vendor</p>
+  </div>
 
-<div id="error"></div>
-<div id="success"></div>
+  <div class="form-body">
+    <div id="error"></div>
+    <div id="success"></div>
 
-<form id="registerForm">
-  <label>Nama Perusahaan / Vendor *</label>
-  <input type="text" id="vendorName" required>
+    <form id="registerForm">
+      <label>Nama Perusahaan / Vendor <span class="req">*</span></label>
+      <input type="text" id="vendorName" required>
 
-  <label>Nama Penanggung Jawab (Authorized Name) *</label>
-  <input type="text" id="authorizedName" required>
+      <div class="row2">
+        <div>
+          <label>Nama Penanggung Jawab <span class="req">*</span></label>
+          <input type="text" id="authorizedName" required>
+        </div>
+        <div>
+          <label>No. KTP / ID Penanggung Jawab</label>
+          <input type="text" id="authorizedId">
+        </div>
+      </div>
 
-  <label>No. KTP / ID Penanggung Jawab</label>
-  <input type="text" id="authorizedId">
+      <div class="row2">
+        <div>
+          <label>Bidang / Spesialisasi</label>
+          <input type="text" id="specialist" placeholder="cth: Material Bangunan">
+        </div>
+        <div>
+          <label>Kategori</label>
+          <select id="catagory">
+            <option value="">-- Pilih Kategori --</option>
+            <option value="Material">Material</option>
+            <option value="Consumables">Consumables</option>
+            <option value="Tools">Tools</option>
+            <option value="HeavyEquipment">Heavy Equipment</option>
+            <option value="Multi Kategori">Multi Kategori</option>
+          </select>
+        </div>
+      </div>
 
-  <label>Bidang / Spesialisasi</label>
-  <input type="text" id="specialist" placeholder="cth: Material Bangunan, Sewa Alat Berat">
+      <label>Alamat <span class="req">*</span></label>
+      <textarea id="address" rows="3" required></textarea>
 
-  <label>Kategori</label>
-  <select id="catagory">
-    <option value="">-- Pilih Kategori --</option>
-    <option value="Material">Material</option>
-    <option value="Consumables">Consumables</option>
-    <option value="Tools">Tools</option>
-    <option value="HeavyEquipment">Heavy Equipment</option>
-    <option value="Multi Kategori">Multi Kategori</option>
-  </select>
+      <div class="row2">
+        <div>
+          <label>No. Kontak <span class="req">*</span></label>
+          <input type="text" id="contactNo" required>
+        </div>
+        <div>
+          <label>Email <span class="req">*</span></label>
+          <input type="email" id="email" required>
+        </div>
+      </div>
 
-  <label>Alamat *</label>
-  <textarea id="address" rows="3" required></textarea>
+      <label>NPWP</label>
+      <input type="text" id="npwp">
 
-  <label>No. Kontak *</label>
-  <input type="text" id="contactNo" required>
+      <div class="row2">
+        <div>
+          <label>No. Rekening</label>
+          <input type="text" id="rekeningNo">
+        </div>
+        <div>
+          <label>Bank</label>
+          <input type="text" id="bank">
+        </div>
+      </div>
 
-  <label>Email *</label>
-  <input type="email" id="email" required>
-
-  <label>NPWP</label>
-  <input type="text" id="npwp">
-
-  <label>No. Rekening</label>
-  <input type="text" id="rekeningNo">
-
-  <label>Bank</label>
-  <input type="text" id="bank">
-
-  <button type="submit" id="submitBtn">Kirim Registrasi</button>
-</form>
+      <button type="submit" id="submitBtn">Kirim Registrasi</button>
+    </form>
+  </div>
+</div>
 
 <script>
 const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
@@ -84,8 +229,8 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     sheetName: "VendorTbl",
     data: {
       VendorName: document.getElementById("vendorName").value,
-      AuthorizeName: document.getElementById("authorizedName").value,   // <- dari AuthorizedName jadi AuthorizeName
-      AuthorizeID: document.getElementById("authorizedId").value,       // <- dari AuthorizedID jadi AuthorizeID
+      AuthorizeName: document.getElementById("authorizedName").value,
+      AuthorizeID: document.getElementById("authorizedId").value,
       Specialist: document.getElementById("specialist").value,
       Catagory: document.getElementById("catagory").value,
       Address: document.getElementById("address").value,
