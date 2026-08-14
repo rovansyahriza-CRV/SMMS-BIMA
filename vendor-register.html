@@ -250,6 +250,19 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     });
     const result = await res.json();
 
+    if (!result.success && result.duplicate) {
+      const wantsUpdate = confirm(
+        result.message + "\n\nApakah email/PIC Anda memang berubah? Klik OK untuk kirim permintaan update ke admin, atau Cancel untuk membatalkan."
+      );
+      if (wantsUpdate) {
+        await sendUpdateRequest(result.vendorName, payload.data.NPWP, payload.data.Email, payload.data.ContactNo);
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Kirim Registrasi";
+      }
+      return;
+    }
+
     if (!result.success) throw new Error(result.error || "Gagal mengirim registrasi");
 
     document.getElementById("registerForm").style.display = "none";
@@ -265,6 +278,36 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     btn.textContent = "Kirim Registrasi";
   }
 });
+
+async function sendUpdateRequest(vendorName, npwp, emailBaru, contactBaru) {
+  const btn = document.getElementById("submitBtn");
+  try {
+    const res = await fetch(RESOURCES_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "UPDATE_REQUEST",
+        vendorName: vendorName,
+        npwp: npwp,
+        emailBaru: emailBaru,
+        contactBaru: contactBaru
+      })
+    });
+    const result = await res.json();
+    if (!result.success) throw new Error(result.error || "Gagal mengirim permintaan update");
+
+    document.getElementById("registerForm").style.display = "none";
+    const successEl = document.getElementById("success");
+    successEl.textContent = "Permintaan update berhasil dikirim. Admin akan meninjau dan menghubungi Anda.";
+    successEl.style.display = "block";
+  } catch (err) {
+    const errorEl = document.getElementById("error");
+    errorEl.textContent = "Gagal mengirim permintaan: " + err.message;
+    errorEl.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Kirim Registrasi";
+  }
+}
 </script>
 </body>
 </html>
