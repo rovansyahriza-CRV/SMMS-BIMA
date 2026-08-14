@@ -5,10 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Input Penawaran RFQ</title>
 <style>
-  .summary { border-top: 2px solid #2C3E50; margin: 16px 0; padding-top: 12px; }
-  .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 15px; }
-  .summary-row.total { font-weight: bold; font-size: 18px; border-top: 1px solid #ddd; margin-top: 4px; padding-top: 10px; }
-  
   body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 0 16px; color: #2C3E50; }
   h2 { margin-bottom: 4px; }
   .meta { color: #666; margin-bottom: 20px; }
@@ -16,32 +12,66 @@
   th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; text-align: left; }
   th { background: #2C3E50; color: white; }
   input { width: 100%; padding: 6px; box-sizing: border-box; font-size: 14px; }
-  button { background: #C0392B; color: white; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; }
+  button { background: #e8562c; color: white; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; }
+  button:hover:not(:disabled) { background: #c8451f; }
   button:disabled { background: #999; }
   #error, #success { padding: 12px; border-radius: 4px; margin-bottom: 16px; display: none; }
   #error { background: #FADBD8; color: #C0392B; }
   #success { background: #D5F4E6; color: #1E8449; }
+
+  .summary { border-top: 2px solid #2C3E50; margin: 16px 0; padding-top: 12px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 15px; }
+  .summary-row.total { font-weight: bold; font-size: 18px; border-top: 1px solid #ddd; margin-top: 4px; padding-top: 10px; }
+
+  .brand { text-align: center; margin-bottom: 24px; }
+  .brand img { height: 56px; }
+  .brand .powered { font-size: 10px; color: #999; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 6px; }
+
+  .pin-card {
+    max-width: 380px;
+    margin: 60px auto;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(61, 61, 61, 0.14);
+    padding: 32px 28px;
+    text-align: center;
+  }
+  .pin-card p { color: #666; font-size: 14px; margin: 0 0 18px; line-height: 1.5; }
+  .pin-card input {
+    text-align: center;
+    font-size: 24px;
+    letter-spacing: 10px;
+    padding: 12px;
+    width: 180px;
+    border: 1.5px solid #e6ded9;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+  .pin-card input:focus {
+    outline: none;
+    border-color: #e8562c;
+    box-shadow: 0 0 0 3px rgba(232, 86, 44, 0.15);
+  }
+  .pin-card button { width: 100%; }
+  .pin-card .pin-error { color: #C0392B; font-size: 13px; margin-top: 12px; display: none; }
 </style>
 </head>
 <body>
 
-  <div style="text-align:center; margin-bottom:20px;">
-    <img src="logo-bima.png" alt="BIMA - Bilal Mitra Aryatama" style="height:56px;">
-    <div style="font-size:10px; color:#999; letter-spacing:1.5px; text-transform:uppercase; margin-top:6px;">
-      Powered by Fusion Four
-    </div>
-  </div>
-  
-  <div id="error"></div>
-  <div id="success"></div>
-  <div id="app">Memuat data RFQ...</div>
+<div class="brand">
+  <img src="logo-bima.png" alt="BIMA - Bilal Mitra Aryatama">
+  <div class="powered">Powered by Fusion Four</div>
+</div>
+
+<div id="error"></div>
+<div id="success"></div>
+<div id="app">Memuat data RFQ...</div>
 
 <script>
-  
 const API_URL = "https://script.google.com/macros/s/AKfycbzdW_BlUsleChcWmNowZutZNbenNDOvu1S4oVdBl_lCQ_efc1VJVX4cE9_o9oYuJlLu/exec";
 const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
 const REQUEST_API_URL = "https://script.google.com/macros/s/AKfycbziA0AWUvyt8f6VGyy4mWM_nsv7RP2xjfrK4vVzPR3_65Qdiu8_NPn8KZyYuPQ6USRW/exec";
-  
+
 const params = new URLSearchParams(window.location.search);
 const rfqSyncId = params.get("rfq");
 const vendorParam = params.get("vendor");
@@ -67,6 +97,7 @@ async function init() {
     showError("Link tidak lengkap. Pastikan Anda membuka link dari email undangan RFQ.");
     return;
   }
+
   try {
     const vendorData = await fetchSheet("VendorTbl", RESOURCES_API_URL);
     const rfqVendorData = await fetchSheet("RFQVendorTbl");
@@ -77,28 +108,62 @@ async function init() {
     const invitation = rfqVendorData.find(v =>
       String(v.ParentSyncID) === rfqSyncId && String(v.VendorID) === vendorParam
     );
+
     if (!invitation) {
       showError("Link tidak valid atau Anda tidak diundang untuk RFQ ini.");
       return;
     }
+
     const rfqHeader = rfqData.find(r => String(r.SyncID) === rfqSyncId);
     const vendorInfo = vendorData.find(v => String(v.VendorID) === vendorParam);
     const items = detailData.filter(d => String(d.ParentSyncID) === rfqSyncId);
+
     if (items.length === 0) {
       showError("RFQ ini belum memiliki item.");
       return;
     }
-    renderForm(rfqHeader, vendorInfo, items, requestData);
+
+    if (invitation.PIN) {
+      showPinGate(rfqHeader, vendorInfo, items, requestData, invitation.PIN);
+    } else {
+      renderForm(rfqHeader, vendorInfo, items, requestData);
+    }
+
   } catch (err) {
     showError("Terjadi kendala memuat data: " + err.message + " Silakan muat ulang halaman.");
   }
 }
-  
+
 function showError(msg) {
   const el = document.getElementById("error");
   el.textContent = msg;
   el.style.display = "block";
   document.getElementById("app").innerHTML = "";
+}
+
+function showPinGate(rfqHeader, vendorInfo, items, requestData, correctPin) {
+  document.getElementById("app").innerHTML = `
+    <div class="pin-card">
+      <p>Masukkan PIN yang dikirimkan melalui email untuk melihat detail RFQ ini.</p>
+      <input type="text" id="pinInput" maxlength="5" inputmode="numeric" placeholder="•••••">
+      <button id="pinSubmitBtn">Buka RFQ</button>
+      <div class="pin-error" id="pinError">PIN salah. Periksa kembali email undangan Anda.</div>
+    </div>
+  `;
+
+  document.getElementById("pinSubmitBtn").addEventListener("click", checkPin);
+  document.getElementById("pinInput").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") checkPin();
+  });
+
+  function checkPin() {
+    const entered = document.getElementById("pinInput").value.trim();
+    if (entered === String(correctPin).trim()) {
+      renderForm(rfqHeader, vendorInfo, items, requestData);
+    } else {
+      document.getElementById("pinError").style.display = "block";
+    }
+  }
 }
 
 function renderForm(rfqHeader, vendorInfo, items, requestData) {
@@ -151,7 +216,7 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
           <span id="subtotalDisplay">Rp 0</span>
         </div>
         <div class="summary-row">
-          <label><input type="checkbox" id="ppnCheckbox"> Sertakan PPN (11%)</label>
+          <label><input type="checkbox" id="ppnCheckbox" style="width:auto;"> Sertakan PPN (11%)</label>
         </div>
         <div class="summary-row total">
           <span>Total Harga</span>
@@ -192,7 +257,7 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
     await submitQuotes(items);
   });
 }
-  
+
 async function submitQuotes(items) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
@@ -202,28 +267,28 @@ async function submitQuotes(items) {
   const now = new Date().toISOString();
 
   try {
-  for (let idx = 0; idx < rows.length; idx++) {
-    const row = rows[idx];
-    const item = items[idx];
-    const desc = row.querySelector(".itemdesc").value;
-    const qty = row.querySelector(".qty").value;
-    const price = row.querySelector(".price").value;
-    const deliveryDate = row.querySelector(".deliverydate").value;
-    const notes = row.querySelector(".notes").value;
-  
-    const payload = {
-      target: "RFQQuoteTbl",
-      data: {
-        ParentSyncID: item.SyncID,
-        VendorID: Number(vendorParam),
-        VendorItemDescription: desc,
-        Qty: Number(qty),
-        UnitPrice: Number(price),
-        QuoteDate: now,
-        VendorDeliveryDate: deliveryDate,
-        Notes: notes
-      }
-    };
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const item = items[idx];
+      const desc = row.querySelector(".itemdesc").value;
+      const qty = row.querySelector(".qty").value;
+      const price = row.querySelector(".price").value;
+      const deliveryDate = row.querySelector(".deliverydate").value;
+      const notes = row.querySelector(".notes").value;
+
+      const payload = {
+        target: "RFQQuoteTbl",
+        data: {
+          ParentSyncID: item.SyncID,
+          VendorID: Number(vendorParam),
+          VendorItemDescription: desc,
+          Qty: Number(qty),
+          UnitPrice: Number(price),
+          QuoteDate: now,
+          VendorDeliveryDate: deliveryDate,
+          Notes: notes
+        }
+      };
 
       const res = await fetch(API_URL, {
         method: "POST",
@@ -245,6 +310,7 @@ async function submitQuotes(items) {
     btn.textContent = "Kirim Penawaran";
   }
 }
+
 init();
 </script>
 </body>
