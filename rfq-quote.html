@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Input Penawaran RFQ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; max-width: 1200px; margin: 20px auto; padding: 0 16px; color: #2C3E50; background: #fdf6f3; }
@@ -93,6 +94,7 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbzdW_BlUsleChcWmNowZutZNbenNDOvu1S4oVdBl_lCQ_efc1VJVX4cE9_o9oYuJlLu/exec";
 const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
 const REQUEST_API_URL = "https://script.google.com/macros/s/AKfycbziA0AWUvyt8f6VGyy4mWM_nsv7RP2xjfrK4vVzPR3_65Qdiu8_NPn8KZyYuPQ6USRW/exec";
+const HO_EMAIL = "rovan.syahriza@gmail.com";
 
 const params = new URLSearchParams(window.location.search);
 const rfqSyncId = params.get("rfq");
@@ -278,17 +280,18 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
 
   document.getElementById("quoteForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    await submitQuotes(items);
+    await submitQuotes(items, rfqHeader, vendorInfo);
   });
 }
 
-async function submitQuotes(items) {
+async function submitQuotes(items, rfqHeader, vendorInfo) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "Mengirim...";
 
   const rows = document.querySelectorAll("#quoteForm tbody tr");
   const now = new Date().toISOString();
+  const quoteLines = [];
 
   try {
     for (let idx = 0; idx < rows.length; idx++) {
@@ -299,6 +302,16 @@ async function submitQuotes(items) {
       const price = row.querySelector(".price").value;
       const deliveryDate = row.querySelector(".deliverydate").value;
       const notes = row.querySelector(".notes").value;
+
+      quoteLines.push({
+        item: item.ItemDescription,
+        unit: item.Unit,
+        qty: qty,
+        desc: desc,
+        price: Number(price) || 0,
+        deliveryDate: deliveryDate,
+        notes: notes
+      });
 
       const payload = {
         target: "RFQQuoteTbl",
@@ -323,6 +336,9 @@ async function submitQuotes(items) {
       if (!result.success) throw new Error(result.error || "Gagal submit item");
     }
 
+    // Generate & kirim PDF ringkasan secara paralel (tidak menghambat konfirmasi ke vendor)
+    sendQuotePdf(rfqHeader, vendorInfo, quoteLines).catch(err => console.error("Gagal kirim PDF:", err));
+
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
@@ -333,6 +349,80 @@ async function submitQuotes(items) {
     btn.disabled = false;
     btn.textContent = "Kirim Penawaran";
   }
+}
+
+function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "-";
+  const vendorName = vendorInfo ? vendorInfo.VendorName : "-";
+
+  doc.setFontSize(14);
+  doc.text("Ringkasan Penawaran RFQ", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`No RFQ: ${noRFQ}`, 14, 26);
+  doc.text(`Vendor: ${vendorName}`, 14, 32);
+  doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID')}`, 14, 38);
+
+  let y = 48;
+  doc.setFontSize(9);
+  doc.text("No", 14, y);
+  doc.text("Item / Deskripsi Vendor", 24, y);
+  doc.text("Qty", 100, y);
+  doc.text("Harga Satuan", 118, y);
+  doc.text("Kirim", 155, y);
+  doc.text("Catatan", 178, y);
+  y += 4;
+  doc.line(14, y, 196, y);
+  y += 6;
+
+  let subtotal = 0;
+  quoteLines.forEach((l, i) => {
+    subtotal += (Number(l.qty) || 0) * (Number(l.price) || 0);
+    doc.text(String(i + 1), 14, y);
+    doc.text(String(l.desc || l.item).substring(0, 38), 24, y);
+    doc.text(`${l.qty} ${l.unit}`, 100, y);
+    doc.text("Rp " + Number(l.price).toLocaleString("id-ID"), 118, y);
+    doc.text(l.deliveryDate || "-", 155, y);
+    doc.text(String(l.notes || "-").substring(0, 14), 178, y);
+    y += 7;
+  });
+
+  y += 3;
+  doc.line(14, y, 196, y);
+  y += 8;
+  doc.setFontSize(11);
+  doc.text(`Subtotal: Rp ${subtotal.toLocaleString("id-ID")}`, 130, y);
+
+  return doc.output('datauristring').split(',')[1];
+}
+
+async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines) {
+  const pdfBase64 = generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines);
+  const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "RFQ";
+  const vendorName = vendorInfo ? vendorInfo.VendorName : "Vendor";
+  const vendorEmail = vendorInfo ? vendorInfo.Email : "";
+
+  const recipients = [HO_EMAIL];
+  if (vendorEmail) recipients.push(vendorEmail);
+
+  const payload = {
+    action: "SEND_EMAIL",
+    to: recipients.join(","),
+    subject: `Penawaran RFQ - ${noRFQ} dari ${vendorName}`,
+    body: `Penawaran dari ${vendorName} untuk ${noRFQ} telah diterima. Ringkasan penawaran terlampir dalam PDF.`,
+    pdfBase64: pdfBase64,
+    fileName: `Penawaran-${noRFQ}-${vendorName}.pdf`
+  };
+
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  const result = await res.json();
+  if (!result.success) throw new Error(result.error || "Gagal mengirim PDF");
 }
 
 init();
