@@ -24,7 +24,7 @@
   th:first-child { border-top-left-radius: 8px; }
   th:last-child { border-top-right-radius: 8px; }
 
-  input {
+  input, textarea {
     width: 100%;
     padding: 8px 10px;
     box-sizing: border-box;
@@ -33,8 +33,10 @@
     border-radius: 8px;
     background: #fdfaf9;
     transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+    resize: vertical;
   }
-  input:focus {
+  input:focus, textarea:focus {
     outline: none;
     border-color: #e8562c;
     box-shadow: 0 0 0 3px rgba(232, 86, 44, 0.15);
@@ -99,7 +101,16 @@ const HO_EMAIL = "rovan.syahriza@gmail.com";
 const params = new URLSearchParams(window.location.search);
 const rfqSyncId = params.get("rfq");
 const vendorParam = params.get("vendor");
-
+ 
+function formatAccounting(value) {
+  const digits = String(value).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+function parseAccountingToNumber(str) {
+  return Number(String(str).replace(/\./g, '')) || 0;
+}
+ 
 async function fetchSheet(sheetName, baseUrl = API_URL, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -211,15 +222,15 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
     const expectedDate = req ? req.ExpectedDate : "-";
 
     return `
-      <tr data-sync-id="${item.SyncID}">
-        <td>${idx + 1}</td>
-        <td>${item.ItemDescription}<br><small style="color:#999;">Dibutuhkan: ${expectedDate}</small></td>
-        <td><input type="number" class="qty" min="0" value="${item.Qty}" style="width:70px"> ${item.Unit}</td>
-        <td><input type="text" class="itemdesc" placeholder="cth: merk/spek"></td>
-        <td><input type="number" class="price" min="0" required></td>
-        <td><input type="date" class="deliverydate" required></td>
-        <td><input type="text" class="notes"></td>
-      </tr>
+    <tr data-sync-id="${item.SyncID}">
+      <td>${idx + 1}</td>
+      <td>${item.ItemDescription}<br><small style="color:#999;">Dibutuhkan: ${expectedDate}</small></td>
+      <td><input type="text" inputmode="numeric" class="qty" value="${formatAccounting(item.Qty)}" style="width:70px"> ${item.Unit}</td>
+      <td><textarea class="itemdesc" rows="2" placeholder="cth: merk/spek"></textarea></td>
+      <td><input type="text" inputmode="numeric" class="price" required></td>
+      <td><input type="date" class="deliverydate" required></td>
+      <td><textarea class="notes" rows="2"></textarea></td>
+    </tr>
     `;
   }).join("");
 
@@ -234,12 +245,12 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
         <table>
           <colgroup>
             <col style="width:4%">
-            <col style="width:10%">
+            <col style="width:16%">
             <col style="width:8%">
-            <col style="width:26%">
-            <col style="width:12%">
-            <col style="width:14%">
-            <col style="width:26%">
+            <col style="width:16%">
+            <col style="width:22%">
+            <col style="width:18%">
+            <col style="width:16%">
           </colgroup>
           <thead>
             <tr><th>No</th><th>Item</th><th>Qty</th><th>Deskripsi Vendor</th><th>Harga Satuan (Rp)</th><th>Tanggal Kirim</th><th>Catatan</th></tr>
@@ -270,22 +281,26 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
     const qtyInputs = document.querySelectorAll("#quoteForm .qty");
     const priceInputs = document.querySelectorAll("#quoteForm .price");
     let subtotal = 0;
-
+  
     for (let i = 0; i < qtyInputs.length; i++) {
-      const qty = parseFloat(qtyInputs[i].value) || 0;
-      const price = parseFloat(priceInputs[i].value) || 0;
+      const qty = parseAccountingToNumber(qtyInputs[i].value);
+      const price = parseAccountingToNumber(priceInputs[i].value);
       subtotal += qty * price;
     }
-
+  
     const ppnChecked = document.getElementById("ppnCheckbox").checked;
     const total = ppnChecked ? subtotal * 1.11 : subtotal;
-
+  
     document.getElementById("subtotalDisplay").textContent = "Rp " + subtotal.toLocaleString("id-ID");
     document.getElementById("totalDisplay").textContent = "Rp " + total.toLocaleString("id-ID");
   }
 
   document.querySelectorAll("#quoteForm .qty, #quoteForm .price").forEach(el => {
-    el.addEventListener("input", calculateSummary);
+    el.addEventListener("input", (e) => {
+      const raw = parseAccountingToNumber(e.target.value);
+      e.target.value = raw ? formatAccounting(raw) : '';
+      calculateSummary();
+    });
   });
   document.getElementById("ppnCheckbox").addEventListener("change", calculateSummary);
   calculateSummary();
@@ -320,18 +335,19 @@ async function submitQuotes(items, rfqHeader, vendorInfo) {
         unit: item.Unit,
         qty: qty,
         desc: desc,
-        price: Number(price) || 0,
+        price: price,
         deliveryDate: deliveryDate,
         notes: notes
       });
 
       const payload = {
         target: "RFQQuoteTbl",
-        data: {
-          ParentSyncID: item.SyncID,
-          VendorID: Number(vendorParam),
-          VendorItemDescription: desc,
-          Qty: Number(qty),
+      data: {
+        ParentSyncID: item.SyncID,
+        VendorID: Number(vendorParam),
+        VendorItemDescription: desc,
+        Qty: qty,
+        UnitPrice: price,
           UnitPrice: Number(price),
           QuoteDate: now,
           VendorDeliveryDate: deliveryDate,
