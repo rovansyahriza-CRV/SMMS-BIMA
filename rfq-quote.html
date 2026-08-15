@@ -393,13 +393,17 @@ function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
   quoteLines.forEach((l, i) => {
     subtotal += (Number(l.qty) || 0) * (Number(l.price) || 0);
     const displayText = l.desc ? `${l.item} - ${l.desc}` : l.item;
+    const wrappedLines = doc.splitTextToSize(displayText, 74); // lebar kolom Item/Deskripsi
+  
     doc.text(String(i + 1), 14, y);
-    doc.text(String(displayText).substring(0, 38), 24, y);
+    doc.text(wrappedLines, 24, y);
     doc.text(`${l.qty} ${l.unit}`, 100, y);
     doc.text("Rp " + Number(l.price).toLocaleString("id-ID"), 118, y);
     doc.text(l.deliveryDate || "-", 155, y);
     doc.text(String(l.notes || "-").substring(0, 14), 178, y);
-    y += 7;
+  
+    const lineHeight = 5;
+    y += Math.max(wrappedLines.length * lineHeight, 7);
   });
 
   y += 3;
