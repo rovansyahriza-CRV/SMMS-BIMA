@@ -315,21 +315,18 @@ async function submitQuotes(items, rfqHeader, vendorInfo) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "Mengirim...";
-
   const rows = document.querySelectorAll("#quoteForm tbody tr");
   const now = new Date().toISOString();
   const quoteLines = [];
-
   try {
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
       const item = items[idx];
       const desc = row.querySelector(".itemdesc").value;
-      const qty = row.querySelector(".qty").value;
-      const price = row.querySelector(".price").value;
+      const qty = parseAccountingToNumber(row.querySelector(".qty").value);
+      const price = parseAccountingToNumber(row.querySelector(".price").value);
       const deliveryDate = row.querySelector(".deliverydate").value;
       const notes = row.querySelector(".notes").value;
-
       quoteLines.push({
         item: item.ItemDescription,
         unit: item.Unit,
@@ -339,22 +336,19 @@ async function submitQuotes(items, rfqHeader, vendorInfo) {
         deliveryDate: deliveryDate,
         notes: notes
       });
-
       const payload = {
         target: "RFQQuoteTbl",
-      data: {
-        ParentSyncID: item.SyncID,
-        VendorID: Number(vendorParam),
-        VendorItemDescription: desc,
-        Qty: qty,
-        UnitPrice: price,
-          UnitPrice: Number(price),
+        data: {
+          ParentSyncID: item.SyncID,
+          VendorID: Number(vendorParam),
+          VendorItemDescription: desc,
+          Qty: qty,
+          UnitPrice: price,
           QuoteDate: now,
           VendorDeliveryDate: deliveryDate,
           Notes: notes
         }
       };
-
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -363,22 +357,18 @@ async function submitQuotes(items, rfqHeader, vendorInfo) {
       const result = await res.json();
       if (!result.success) throw new Error(result.error || "Gagal submit item");
     }
-
-    // Generate & kirim PDF ringkasan secara paralel (tidak menghambat konfirmasi ke vendor)
     sendQuotePdf(rfqHeader, vendorInfo, quoteLines).catch(err => console.error("Gagal kirim PDF:", err));
-
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
     successEl.style.display = "block";
-
   } catch (err) {
     showError("Gagal mengirim penawaran: " + err.message);
     btn.disabled = false;
     btn.textContent = "Kirim Penawaran";
   }
 }
-
+ 
 function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
