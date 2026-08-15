@@ -392,8 +392,9 @@ function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
   let subtotal = 0;
   quoteLines.forEach((l, i) => {
     subtotal += (Number(l.qty) || 0) * (Number(l.price) || 0);
+    const displayText = l.desc ? `${l.item} - ${l.desc}` : l.item;
     doc.text(String(i + 1), 14, y);
-    doc.text(String(l.desc || l.item).substring(0, 38), 24, y);
+    doc.text(String(displayText).substring(0, 38), 24, y);
     doc.text(`${l.qty} ${l.unit}`, 100, y);
     doc.text("Rp " + Number(l.price).toLocaleString("id-ID"), 118, y);
     doc.text(l.deliveryDate || "-", 155, y);
