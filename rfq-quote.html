@@ -171,9 +171,9 @@ if (items.length === 0) {
 }
 
 if (invitation.PIN) {
-  showPinGate(rfqHeader, vendorInfo, items, requestData, invitation.PIN);
+  showPinGate(rfqHeader, vendorInfo, items, requestData, invitation.PIN, invitation);
 } else {
-  renderForm(rfqHeader, vendorInfo, items, requestData);
+  renderForm(rfqHeader, vendorInfo, items, requestData, invitation);
 }
 
   } catch (err) {
@@ -188,7 +188,7 @@ function showError(msg) {
   document.getElementById("app").innerHTML = "";
 }
 
-function showPinGate(rfqHeader, vendorInfo, items, requestData, correctPin) {
+function showPinGate(rfqHeader, vendorInfo, items, requestData, correctPin, invitation) {
   document.getElementById("app").innerHTML = `
     <div class="pin-card">
       <p>Masukkan PIN yang dikirimkan melalui email untuk melihat detail RFQ ini.</p>
@@ -206,14 +206,14 @@ function showPinGate(rfqHeader, vendorInfo, items, requestData, correctPin) {
   function checkPin() {
     const entered = document.getElementById("pinInput").value.trim();
     if (entered === String(correctPin).trim()) {
-      renderForm(rfqHeader, vendorInfo, items, requestData);
+      renderForm(rfqHeader, vendorInfo, items, requestData, invitation);
     } else {
       document.getElementById("pinError").style.display = "block";
     }
   }
 }
 
-function renderForm(rfqHeader, vendorInfo, items, requestData) {
+function renderForm(rfqHeader, vendorInfo, items, requestData, invitation) {
   const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "-";
   const vendorName = vendorInfo ? vendorInfo.VendorName : "-";
 
@@ -257,6 +257,39 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+        
+        <div class="additional-cost" style="border-top:2px solid #eee; margin-top:16px; padding-top:16px;">
+          <h3 style="font-size:16px; color:#3d3d3d; margin-bottom:12px;">Biaya Tambahan & Termin Pembayaran</h3>
+          
+          <table style="margin-bottom:16px;">
+            <tr>
+              <td style="width:30%; border:none;">Biaya Mobilisasi (Rp)</td>
+              <td style="border:none;"><input type="text" inputmode="numeric" id="mobilisasiCost"></td>
+            </tr>
+            <tr>
+              <td style="border:none;">Biaya Jasa Lain (Rp)</td>
+              <td style="border:none;"><input type="text" inputmode="numeric" id="otherServiceCost"></td>
+            </tr>
+            <tr>
+              <td style="border:none;">Deskripsi Jasa Lain</td>
+              <td style="border:none;"><textarea id="otherServiceDesc" rows="2" placeholder="cth: Instalasi + Training"></textarea></td>
+            </tr>
+            <tr>
+              <td style="border:none;">Termin Pembayaran</td>
+              <td style="border:none;">
+                <select id="paymentTermType">
+                  <option value="Full Before Delivery">Full Before Delivery</option>
+                  <option value="Full After Received">Full After Received</option>
+                  <option value="Partial">Partial (DP + Sisa)</option>
+                </select>
+              </td>
+            </tr>
+            <tr id="dpRow" style="display:none;">
+              <td style="border:none;">DP (%)</td>
+              <td style="border:none;"><input type="number" id="dpPercentage" min="1" max="99" placeholder="cth: 30"></td>
+            </tr>
+          </table>
+        </div>
 
         <div class="summary">
           <div class="summary-row">
@@ -302,16 +335,29 @@ function renderForm(rfqHeader, vendorInfo, items, requestData) {
       calculateSummary();
     });
   });
+ 
   document.getElementById("ppnCheckbox").addEventListener("change", calculateSummary);
   calculateSummary();
 
+ document.querySelectorAll("#mobilisasiCost, #otherServiceCost").forEach(el => {
+   el.addEventListener("input", (e) => {
+     const raw = parseAccountingToNumber(e.target.value);
+     e.target.value = raw ? formatAccounting(raw) : '';
+     calculateSummary();
+   });
+ });
+
+document.getElementById("paymentTermType").addEventListener("change", (e) => {
+  document.getElementById("dpRow").style.display = e.target.value === "Partial" ? "table-row" : "none";
+});
+ 
   document.getElementById("quoteForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    await submitQuotes(items, rfqHeader, vendorInfo);
+    await submitQuotes(items, rfqHeader, vendorInfo, invitation);
   });
 }
 
-async function submitQuotes(items, rfqHeader, vendorInfo) {
+async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "Mengirim...";
@@ -357,6 +403,28 @@ async function submitQuotes(items, rfqHeader, vendorInfo) {
       const result = await res.json();
       if (!result.success) throw new Error(result.error || "Gagal submit item");
     }
+
+    const termPayload = {
+      target: "RFQVendorTermTbl",
+      data: {
+        ParentSyncID: invitation.SyncID,
+        MobilisasiCost: parseAccountingToNumber(document.getElementById("mobilisasiCost").value),
+        OtherServiceCost: parseAccountingToNumber(document.getElementById("otherServiceCost").value),
+        OtherServiceDescription: document.getElementById("otherServiceDesc").value,
+        PaymentTermType: document.getElementById("paymentTermType").value,
+        DPPercentage: document.getElementById("paymentTermType").value === "Partial"
+          ? Number(document.getElementById("dpPercentage").value) : null,
+        SubmitDate: now
+      }
+    };
+    const termRes = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(termPayload)
+    });
+    const termResult = await termRes.json();
+    if (!termResult.success) throw new Error(termResult.error || "Gagal submit biaya tambahan");
+   
     sendQuotePdf(rfqHeader, vendorInfo, quoteLines).catch(err => console.error("Gagal kirim PDF:", err));
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
