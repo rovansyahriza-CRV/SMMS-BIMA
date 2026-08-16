@@ -431,6 +431,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
     successEl.style.display = "block";
   } catch (err) {
+    console.error(err);
     showError("Gagal mengirim penawaran: " + err.message);
     btn.disabled = false;
     btn.textContent = "Kirim Penawaran";
