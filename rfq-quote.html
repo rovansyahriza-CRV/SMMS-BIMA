@@ -425,7 +425,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
     const termResult = await termRes.json();
     if (!termResult.success) throw new Error(termResult.error || "Gagal submit biaya tambahan");
    
-    sendQuotePdf(rfqHeader, vendorInfo, quoteLines).catch(err => console.error("Gagal kirim PDF:", err));
+    sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termPayload.data).catch(err => console.error("Gagal kirim PDF:", err));
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
@@ -438,7 +438,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
   }
 }
  
-function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
+function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines, termData) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
 
@@ -487,11 +487,38 @@ function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines) {
   doc.setFontSize(11);
   doc.text(`Subtotal: Rp ${subtotal.toLocaleString("id-ID")}`, 130, y);
 
+  if (termData) {
+    y += 12;
+    doc.setFontSize(11);
+    doc.text("Biaya Tambahan & Termin Pembayaran", 14, y);
+    y += 7;
+    doc.setFontSize(9);
+
+    doc.text(`Mobilisasi: Rp ${(termData.MobilisasiCost || 0).toLocaleString("id-ID")}${termData.MobilisasiCost ? "" : " (Included)"}`, 14, y);
+    y += 6;
+    doc.text(`Jasa Lain: Rp ${(termData.OtherServiceCost || 0).toLocaleString("id-ID")}${termData.OtherServiceCost ? "" : " (Included)"}`, 14, y);
+    y += 6;
+
+    if (termData.OtherServiceDescription) {
+      const descLines = doc.splitTextToSize(`Deskripsi Jasa: ${termData.OtherServiceDescription}`, 182);
+      doc.text(descLines, 14, y);
+      y += descLines.length * 5;
+    }
+
+    doc.text(`Termin Pembayaran: ${termData.PaymentTermType}`, 14, y);
+    y += 6;
+
+    if (termData.PaymentTermType === "Partial" && termData.DPPercentage) {
+      doc.text(`DP: ${termData.DPPercentage}% / Sisa: ${100 - termData.DPPercentage}%`, 14, y);
+      y += 6;
+    }
+  }
+
   return doc.output('datauristring').split(',')[1];
 }
 
-async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines) {
-  const pdfBase64 = generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines);
+async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termData) {
+  const pdfBase64 = generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines, termData);
   const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "RFQ";
   const vendorName = vendorInfo ? vendorInfo.VendorName : "Vendor";
   const vendorEmail = vendorInfo ? vendorInfo.Email : "";
