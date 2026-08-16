@@ -242,7 +242,7 @@ function renderForm(rfqHeader, vendorInfo, items, requestData, invitation) {
         Vendor: <strong>${vendorName}</strong>
       </div>
       <form id="quoteForm">
-        <table>
+        <table id="itemsTable">
           <colgroup>
             <col style="width:4%">
             <col style="width:16%">
@@ -361,7 +361,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "Mengirim...";
-  const rows = document.querySelectorAll("#quoteForm tbody tr");
+  const rows = document.querySelectorAll("#itemsTable tbody tr");
   const now = new Date().toISOString();
   const quoteLines = [];
   try {
