@@ -366,6 +366,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
   const rows = document.querySelectorAll("#itemsTable tbody tr");
   const now = new Date().toISOString();
   const quoteLines = [];
+  let itemSubtotal = 0;
   try {
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
@@ -375,6 +376,7 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
       const price = parseAccountingToNumber(row.querySelector(".price").value);
       const deliveryDate = row.querySelector(".deliverydate").value;
       const notes = row.querySelector(".notes").value;
+      itemSubtotal += qty * price;
       quoteLines.push({
         item: item.ItemDescription,
         unit: item.Unit,
@@ -406,16 +408,23 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
       if (!result.success) throw new Error(result.error || "Gagal submit item");
     }
 
+    const mobilisasi = parseAccountingToNumber(document.getElementById("mobilisasiCost").value);
+    const otherService = parseAccountingToNumber(document.getElementById("otherServiceCost").value);
+    const subtotalWithExtra = itemSubtotal + mobilisasi + otherService;
+    const ppnChecked = document.getElementById("ppnCheckbox").checked;
+    const ppnAmount = ppnChecked ? subtotalWithExtra * 0.11 : 0;
+
     const termPayload = {
       target: "RFQVendorTermTbl",
       data: {
         ParentSyncID: invitation.SyncID,
-        MobilisasiCost: parseAccountingToNumber(document.getElementById("mobilisasiCost").value),
-        OtherServiceCost: parseAccountingToNumber(document.getElementById("otherServiceCost").value),
+        MobilisasiCost: mobilisasi,
+        OtherServiceCost: otherService,
         OtherServiceDescription: document.getElementById("otherServiceDesc").value,
         PaymentTermType: document.getElementById("paymentTermType").value,
         DPPercentage: document.getElementById("paymentTermType").value === "Partial"
           ? Number(document.getElementById("dpPercentage").value) : null,
+        PPNAmount: ppnAmount,
         SubmitDate: now
       }
     };
@@ -426,14 +435,13 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
     });
     const termResult = await termRes.json();
     if (!termResult.success) throw new Error(termResult.error || "Gagal submit biaya tambahan");
-   
+
     sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termPayload.data).catch(err => console.error("Gagal kirim PDF:", err));
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
     successEl.style.display = "block";
   } catch (err) {
-    console.error(err);
     showError("Gagal mengirim penawaran: " + err.message);
     btn.disabled = false;
     btn.textContent = "Kirim Penawaran";
