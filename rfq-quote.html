@@ -277,11 +277,13 @@ function renderForm(rfqHeader, vendorInfo, items, requestData, invitation) {
             <tr>
               <td style="border:none;">Termin Pembayaran</td>
               <td style="border:none;">
-                <select id="paymentTermType">
-                  <option value="Full Before Delivery">Full Before Delivery</option>
-                  <option value="Full After Received">Full After Received</option>
-                  <option value="Partial">Partial (DP + Sisa)</option>
-                </select>
+              <select id="paymentTermType">
+                <option value="Full Before Delivery">Full Before Delivery</option>
+                <option value="Full After Received">Full After Received</option>
+                <option value="Partial">Partial (DP + Sisa)</option>
+                <option value="30 Days After Invoice Received">30 Days After Invoice Received</option>
+                <option value="Back to Back Payment">Back to Back Payment</option>
+              </select>
               </td>
             </tr>
             <tr id="dpRow" style="display:none;">
