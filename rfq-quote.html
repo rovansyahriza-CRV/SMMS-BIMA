@@ -518,8 +518,12 @@ function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines, termData) {
     doc.text(`Termin Pembayaran: ${termData.PaymentTermType}`, 14, y);
     y += 6;
 
-    if (termData.PaymentTermType === "Partial" && termData.DPPercentage) {
-      doc.text(`DP: ${termData.DPPercentage}% / Sisa: ${100 - termData.DPPercentage}%`, 14, y);
+      if (termData.PaymentTermType === "Partial" && termData.DPPercentage) {
+        doc.text(`DP: ${termData.DPPercentage}% / Sisa: ${100 - termData.DPPercentage}%`, 14, y);
+        y += 6;
+      }
+
+      doc.text(`PPN 11%: ${termData.PPNAmount > 0 ? "Rp " + Math.round(termData.PPNAmount).toLocaleString("id-ID") : "Tidak dikenakan"}`, 14, y);
       y += 6;
     }
   }
