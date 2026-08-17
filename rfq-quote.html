@@ -110,6 +110,15 @@ function formatAccounting(value) {
 function parseAccountingToNumber(str) {
   return Number(String(str).replace(/\./g, '')) || 0;
 }
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+} 
  
 async function fetchSheet(sheetName, baseUrl = API_URL, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -290,6 +299,10 @@ function renderForm(rfqHeader, vendorInfo, items, requestData, invitation) {
               <td style="border:none;">DP (%)</td>
               <td style="border:none;"><input type="number" id="dpPercentage" min="1" max="99" placeholder="cth: 30"></td>
             </tr>
+            <tr>
+              <td style="border:none;">Lampirkan Quotation (PDF)</td>
+              <td style="border:none;"><input type="file" id="vendorAttachment" accept="application/pdf"></td>
+            </tr>
           </table>
         </div>
 
@@ -436,7 +449,16 @@ async function submitQuotes(items, rfqHeader, vendorInfo, invitation) {
     const termResult = await termRes.json();
     if (!termResult.success) throw new Error(termResult.error || "Gagal submit biaya tambahan");
 
-    sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termPayload.data).catch(err => console.error("Gagal kirim PDF:", err));
+    const attachmentFile = document.getElementById("vendorAttachment").files[0];
+    let vendorAttachmentBase64 = null, vendorAttachmentFileName = null;
+    if (attachmentFile) {
+      vendorAttachmentBase64 = await readFileAsBase64(attachmentFile);
+      vendorAttachmentFileName = attachmentFile.name;
+    }
+
+    sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termPayload.data, vendorAttachmentBase64, vendorAttachmentFileName)
+      .catch(err => console.error("Gagal kirim PDF:", err));
+   
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = "Penawaran berhasil dikirim. Terima kasih.";
@@ -530,7 +552,7 @@ function generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines, termData) {
   return doc.output('datauristring').split(',')[1];
 }
  
-async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termData) {
+async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termData, vendorPdfBase64, vendorPdfFileName) {
   const pdfBase64 = generateQuotePdfBase64(rfqHeader, vendorInfo, quoteLines, termData);
   const noRFQ = rfqHeader ? rfqHeader.NoRFQ : "RFQ";
   const vendorName = vendorInfo ? vendorInfo.VendorName : "Vendor";
@@ -545,7 +567,9 @@ async function sendQuotePdf(rfqHeader, vendorInfo, quoteLines, termData) {
     subject: `Penawaran RFQ - ${noRFQ} dari ${vendorName}`,
     body: `Penawaran dari ${vendorName} untuk ${noRFQ} telah diterima. Ringkasan penawaran terlampir dalam PDF.`,
     pdfBase64: pdfBase64,
-    fileName: `Penawaran-${noRFQ}-${vendorName}.pdf`
+    fileName: `Penawaran-${noRFQ}-${vendorName}.pdf`,
+    vendorPdfBase64: vendorPdfBase64 || null,
+    vendorPdfFileName: vendorPdfFileName || (`Quotation-${noRFQ}-${vendorName}.pdf`)
   };
 
   const res = await fetch(API_URL, {
