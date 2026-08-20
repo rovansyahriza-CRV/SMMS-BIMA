@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
 <header class="topbar">
   <div class="topbar-inner">
     <span class="mark">SMMS</span>
@@ -15,14 +14,11 @@
     <button id="logoutBtn" class="logout-btn" hidden>Logout</button>
   </div>
 </header>
-
 <main class="wrap">
-
   <section id="loginSection" class="card login-card">
     <span class="eyebrow">Masuk</span>
     <h1>Login</h1>
     <p class="sub">Masukkan ID dan PIN kamu untuk melanjutkan.</p>
-
     <form id="loginForm" autocomplete="off">
       <div class="field">
         <label for="loginId">Nama</label>
@@ -38,14 +34,12 @@
       <button type="submit" id="loginBtn" class="btn-submit">Masuk</button>
     </form>
   </section>
-
   <section id="menuSection" class="menu-section" hidden>
     <div class="page-head">
       <span class="eyebrow">Menu utama</span>
       <h1>Halo, <span id="userName">—</span></h1>
       <p class="sub">Pilih menu yang ingin kamu buka.</p>
     </div>
-
     <div class="menu-grid">
       <a href="request.html" id="menuRequest" class="menu-tile" hidden>
         <span class="menu-title">Request</span>
@@ -59,13 +53,14 @@
         <span class="menu-title">Distribusi</span>
         <span class="menu-desc">Serah terima ke end user</span>
       </a>
+      <a href="approval-selection.html" id="menuApproval" class="menu-tile" hidden>
+        <span class="menu-title">Approval</span>
+        <span class="menu-desc">Review &amp; approve hasil seleksi vendor</span>
+      </a>
     </div>
-
     <p id="noAccessMsg" class="form-msg error" hidden>Akun kamu belum punya akses ke menu manapun. Hubungi admin.</p>
   </section>
-
 </main>
-
 <script src="config.js"></script>
 <script src="auth.js"></script>
 <script src="nav.js"></script>
