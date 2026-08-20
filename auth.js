@@ -17,7 +17,7 @@ function clearSession() {
 // Author di PasswordTbl bisa berisi lebih dari satu role dipisah koma, cth "Request, Receive"
 function isAuthorized(authorField, required) {
   if (!authorField) return false;
-  return authorField
+  return String(authorField)
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .includes(required.toLowerCase());
