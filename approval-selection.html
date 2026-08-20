@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SMMS-BIMA — Approval Hasil Seleksi</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* ==== Tambahan khusus halaman approval, pakai variabel warna yang sama dari style.css ==== */
+  .wrap.wide { max-width: 960px; }
+  .rfq-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 22px;
+  }
+  .rfq-picker select { max-width: 480px; }
+  .empty-state {
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .crosstab-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+  table.crosstab {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 560px;
+    font-size: 13.5px;
+  }
+  table.crosstab th, table.crosstab td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid #f1efe7;
+    white-space: nowrap;
+  }
+  table.crosstab td.row-label, table.crosstab th.row-label-head {
+    position: sticky;
+    left: 0;
+    background: var(--card);
+    font-weight: 600;
+    white-space: normal;
+    min-width: 200px;
+  }
+  table.crosstab thead tr.action-row th {
+    background: var(--card);
+    border-bottom: none;
+    padding-bottom: 6px;
+  }
+  table.crosstab thead tr.vendor-head th {
+    background: var(--ink);
+    color: #f6f4ee;
+    font-weight: 700;
+  }
+  table.crosstab thead tr.vendor-head th.row-label-head {
+    background: #eede23;
+    color: var(--ink);
+  }
+  table.crosstab td.cell-value { text-align: right; font-variant-numeric: tabular-nums; }
+  table.crosstab tr.total-row td, table.crosstab tr.total-row th {
+    background: #e7e4d8;
+    font-weight: 700;
+    border-top: 2px solid var(--line);
+  }
+  .vendor-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .btn-approve, .btn-reject {
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #fff;
+  }
+  .btn-approve { background: #2563eb; }
+  .btn-approve:hover { background: #1d4ed8; }
+  .btn-reject { background: var(--rust); }
+  .btn-reject:hover { background: var(--rust-dark); }
+  .btn-approve:disabled, .btn-reject:disabled { opacity: 0.45; cursor: not-allowed; }
+  .status-pill {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .status-pending { background: #f1efe7; color: var(--ink-soft); }
+  .status-approved { background: var(--moss-bg); color: var(--moss); }
+  .status-rejected { background: #f6e2dd; color: var(--danger); }
+  .loading-note { color: var(--ink-soft); font-size: 13px; margin: 10px 0; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="mark">SMMS</span>
+    <span class="site-name">BIMA</span>
+    <a href="index.html" class="logout-btn" style="text-decoration:none;display:inline-block">Menu</a>
+  </div>
+</header>
+<main class="wrap wide">
+  <div class="page-head">
+    <span class="eyebrow">Approval hasil seleksi</span>
+    <h1>Review &amp; approve vendor pemenang</h1>
+    <p class="sub">Pilih RFQ yang menunggu approval, review ringkasan tiap vendor, lalu Confirm atau Cancel per vendor.</p>
+  </div>
+
+  <div class="rfq-picker">
+    <label for="rfqSelect">RFQ menunggu approval</label>
+    <select id="rfqSelect" disabled>
+      <option value="">Memuat daftar RFQ...</option>
+    </select>
+  </div>
+
+  <p id="loadingNote" class="loading-note" hidden>Memuat data...</p>
+  <div id="emptyState" class="empty-state" hidden>Tidak ada RFQ yang berstatus "Menunggu Approval" saat ini.</div>
+  <div id="crosstabWrap" class="crosstab-scroll" hidden>
+    <table class="crosstab" id="crosstabTable"></table>
+  </div>
+
+  <p class="footnote">Login sebagai <span id="approverLabel">—</span></p>
+</main>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="approvalSelection.js"></script>
+</body>
+</html>
