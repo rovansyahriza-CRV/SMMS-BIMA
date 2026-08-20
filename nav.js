@@ -11,32 +11,29 @@ const nav = {
   menuRequest: document.getElementById("menuRequest"),
   menuReceived: document.getElementById("menuReceived"),
   menuDistribusi: document.getElementById("menuDistribusi"),
+  menuApproval: document.getElementById("menuApproval"),
   noAccessMsg: document.getElementById("noAccessMsg"),
 };
-
 function showMenu(session) {
   nav.loginSection.hidden = true;
   nav.menuSection.hidden = false;
   nav.logoutBtn.hidden = false;
   nav.userName.textContent = session.nama;
-
   const hasRequest = isAuthorized(session.author, MENU_AUTH.Request);
   const hasReceived = isAuthorized(session.author, MENU_AUTH.Received);
   const hasDistribusi = isAuthorized(session.author, MENU_AUTH.Distribusi);
-
+  const hasApproval = MENU_AUTH.Approval ? isAuthorized(session.author, MENU_AUTH.Approval) : false;
   nav.menuRequest.hidden = !hasRequest;
   nav.menuReceived.hidden = !hasReceived;
   nav.menuDistribusi.hidden = !hasDistribusi;
-
-  nav.noAccessMsg.hidden = hasRequest || hasReceived || hasDistribusi;
+  if (nav.menuApproval) nav.menuApproval.hidden = !hasApproval;
+  nav.noAccessMsg.hidden = hasRequest || hasReceived || hasDistribusi || hasApproval;
 }
-
 function showLogin() {
   nav.loginSection.hidden = false;
   nav.menuSection.hidden = true;
   nav.logoutBtn.hidden = true;
 }
-
 async function populateUserDropdown() {
   try {
     const karyawan = await fetchKaryawanSheet("KaryawanTbl");
@@ -54,14 +51,12 @@ async function populateUserDropdown() {
     nav.loginMsg.className = "form-msg error";
   }
 }
-
 nav.loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   nav.loginMsg.textContent = "";
   nav.loginMsg.className = "form-msg";
   nav.loginBtn.disabled = true;
   nav.loginBtn.textContent = "Memeriksa...";
-
   try {
     const session = await login(nav.loginId.value.trim(), nav.loginPin.value.trim());
     showMenu(session);
@@ -74,12 +69,10 @@ nav.loginForm.addEventListener("submit", async (e) => {
     nav.loginBtn.textContent = "Masuk";
   }
 });
-
 nav.logoutBtn.addEventListener("click", () => {
   logout();
   showLogin();
 });
-
 // ==== init ====
 (function init() {
   const session = getSession();
