@@ -11,4 +11,5 @@ const MENU_AUTH = {
   Request: "Request",
   Received: "Receive",
   Distribusi: "Distribusi",
+  Approval: "Approval",
 };
