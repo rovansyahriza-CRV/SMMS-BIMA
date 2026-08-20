@@ -20,6 +20,12 @@
 //    ditambahkan ke qrySelectionSummaryByVendor versi REVISED di "Access-Query-Fixes.sql"
 //    sebagai kolom TermsOfPayment, dan FIELD_MAP.summary.termsOfPayment di bawah sudah
 //    otomatis mengambilnya.
+//
+// 4. PENTING (v2): qrySelectionResultByVendor & qrySelectionSummaryByVendor versi
+//    REVISED v2 sekarang kirim angka uang MENTAH (bukan teks "Rp #,##0" lagi) --
+//    sebelumnya teks itu di-auto-parse SALAH sama Google Sheets ("Rp 45,000" jadi
+//    "Rp45,00" karena Sheets baca koma sebagai desimal). Semua formatting Rupiah
+//    sekarang dilakukan di sini (formatRupiah), bukan di Access lagi.
 // =====================================================================================
 
 const FIELD_MAP = {
@@ -38,7 +44,7 @@ const FIELD_MAP = {
     vendorId: "VendorID",
     vendorName: "VendorName",
     itemDescription: "ItemDescription",
-    totalPrice: "TotalPrice", // sudah pre-formatted string "Rp #,##0"
+    totalPrice: "TotalPrice", // angka mentah (BUKAN string lagi, lihat catatan #4 di atas)
     qty: "Qty", // qty yang DITAWARKAN vendor -- bisa lebih kecil dari qty yang diminta di RFQ
   },
   summary: {
@@ -215,7 +221,7 @@ function renderCrosstab(rfqId) {
         const qtyNote = (match[rf.qty] !== undefined && match[rf.qty] !== "")
           ? `<br><span style="font-weight:400;color:var(--ink-soft);font-size:11.5px;">Qty ${match[rf.qty]}</span>`
           : "";
-        html += `<td class="cell-value">${match[rf.totalPrice]}${qtyNote}</td>`;
+        html += `<td class="cell-value">${formatRupiah(parseRupiah(match[rf.totalPrice]))}${qtyNote}</td>`;
       } else {
         html += `<td class="cell-value">${formatRupiah(0)}</td>`;
       }
