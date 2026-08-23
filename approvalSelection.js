@@ -30,10 +30,10 @@
 
 const FIELD_MAP = {
   rfq: {
-    id: "RFQID",       // PK RFQTbl -- SESUAIKAN kalau beda
+    id: "RFQID",
     status: "Status",
     pendingValue: "Menunggu Approval",
-    doneValue: "Sudah Direview",
+    doneValue: "Menunggu Konfirmasi Vendor",
     // Kandidat kolom label buat ditampilkan di dropdown, dicoba urut sampai ketemu yang ada isinya
     // "NoRFQ" dikonfirmasi dari datasheet RFQTbl (cth. "RFQ-202608-0019")
     labelCandidates: ["NoRFQ", "RFQNo", "RFQNumber", "WO_NO", "ProjectID"],
