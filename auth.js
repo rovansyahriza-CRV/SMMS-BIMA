@@ -61,6 +61,32 @@ async function login(id, password) {
   return session;
 }
 
+async function bypassAuthFromBadge() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('fromBadge') !== '1') return false;
+  const bypassId = params.get('id');
+  if (!bypassId) return false;
+
+  try {
+    const [passwords, karyawan] = await Promise.all([
+      fetchKaryawanSheet("PasswordTbl"),
+      fetchKaryawanSheet("KaryawanTbl"),
+    ]);
+    const pw = passwords.find((p) => String(p.Id) === String(bypassId));
+    if (!pw) return false;
+    const karyawanRow = karyawan.find((k) => String(k.Id) === String(bypassId));
+    setSession({
+      id: pw.Id,
+      nama: karyawanRow ? karyawanRow.NamaPersonnel : `User #${pw.Id}`,
+      author: pw.Author || "",
+    });
+    return true;
+  } catch (e) {
+    console.warn("Bypass gagal:", e.message);
+    return false;
+  }
+}
+
 // ==== Guard: panggil di halaman form (request/received/distribusi) ====
 function requireAuth(menuName) {
   const session = getSession();
