@@ -33,6 +33,7 @@ const FIELD_MAP = {
     id: "RFQID",       // PK RFQTbl -- SESUAIKAN kalau beda
     status: "Status",
     pendingValue: "Menunggu Approval",
+    doneValue: "Sudah Direview",
     // Kandidat kolom label buat ditampilkan di dropdown, dicoba urut sampai ketemu yang ada isinya
     // "NoRFQ" dikonfirmasi dari datasheet RFQTbl (cth. "RFQ-202608-0019")
     labelCandidates: ["NoRFQ", "RFQNo", "RFQNumber", "WO_NO", "ProjectID"],
@@ -314,8 +315,41 @@ async function submitApproval(rfqId, vendor, decision, container) {
     if (idx !== -1) allRfqVendor[idx][rvf.managementApproval] = decision;
 
     paintVendorActions(container, decision, null, null);
+    checkAndCompleteRfqIfDone(rfqId);
   } catch (err) {
     container.innerHTML = `<span class="status-pill status-rejected">Gagal: ${err.message}</span>`;
+  }
+}
+
+async function checkAndCompleteRfqIfDone(rfqId) {
+  const rvf = FIELD_MAP.rfqVendor;
+  const vendorRows = allRfqVendor.filter((r) => String(r[rvf.rfqId]) === String(rfqId));
+  if (vendorRows.length === 0) return;
+
+  const allDecided = vendorRows.every((r) => {
+    const val = String(r[rvf.managementApproval] || "").trim();
+    return val === "Approved" || val === "Rejected";
+  });
+  if (!allDecided) return;
+
+  try {
+    await fetch(TRANSAKSI_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "UPDATE_ROW",
+        sheetName: "RFQTbl",
+        match: { [FIELD_MAP.rfq.id]: rfqId },
+        updates: { [FIELD_MAP.rfq.status]: FIELD_MAP.rfq.doneValue },
+      }),
+    });
+
+    const rfqIdx = allRfq.findIndex((r) => String(r[FIELD_MAP.rfq.id]) === String(rfqId));
+    if (rfqIdx !== -1) allRfq[rfqIdx][FIELD_MAP.rfq.status] = FIELD_MAP.rfq.doneValue;
+
+    els.loadingNote.hidden = false;
+    els.loadingNote.textContent = "✅ Semua vendor sudah direview — RFQ ini otomatis ditandai selesai.";
+  } catch (err) {
+    console.warn("Gagal update status RFQTbl:", err.message);
   }
 }
 
