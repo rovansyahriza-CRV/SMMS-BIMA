@@ -76,12 +76,14 @@ const els = {
   approverLabel: document.getElementById("approverLabel"),
 };
 
-const session = requireAuth("Approval");
+let session = null;
 
 let allRfq = [];
 let allResult = [];
 let allSummary = [];
 let allRfqVendor = [];
+
+// ... (semua function lain di antara ini TETAP SAMA, tidak diubah)
 
 function parseRupiah(str) {
   if (str === undefined || str === null || str === "") return 0;
@@ -317,4 +319,12 @@ async function submitApproval(rfqId, vendor, decision, container) {
   }
 }
 
-init();
+async function initSession() {
+  if (!getSession()) {
+    await bypassAuthFromBadge();
+  }
+  session = requireAuth("Approval");
+  if (session) init();
+}
+initSession();
+
