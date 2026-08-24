@@ -423,9 +423,41 @@ async function submitDecision(decision, reason) {
     const result = await res.json();
     if (!result.success) throw new Error(result.error || "Gagal menyimpan.");
 
+    if (decision === "Confirmed") {
+      await checkAndCompleteConfirmationIfDone();
+    }
+
     showAlreadyDecided(decision);
   } catch (err) {
     actionMsg.innerHTML = `<div class="msg msg-error">Gagal: ${err.message}</div>`;
+  }
+}
+
+async function checkAndCompleteConfirmationIfDone() {
+  try {
+    const vendorRows = await fetchSheet("RFQVendorTbl");
+    const f = FIELD.vendor;
+    const approvedRows = vendorRows.filter(
+      (r) => String(r[f.rfqId]) === String(rfqId) && String(r["ManagementApproval"]).trim() === "Approved"
+    );
+    if (approvedRows.length === 0) return;
+
+    const allConfirmed = approvedRows.every(
+      (r) => String(r[f.confirmationStatus] || "").trim() === "Confirmed"
+    );
+    if (!allConfirmed) return;
+
+    await fetch(TRANSAKSI_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "UPDATE_ROW",
+        sheetName: "RFQTbl",
+        match: { RFQID: rfqId },
+        updates: { Status: "Vendor Confirmed" },
+      }),
+    });
+  } catch (err) {
+    console.warn("Gagal update status RFQTbl:", err.message);
   }
 }
 
