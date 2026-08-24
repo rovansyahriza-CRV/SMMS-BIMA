@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Konfirmasi PO - BiMa</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --orange: #E8562C;
+    --charcoal: #2B2B2B;
+    --ink-soft: #6b6b6b;
+    --bg: #F5F1EC;
+    --success-bg: #E5F6EC;
+    --success-ink: #1C7A3E;
+    --danger-bg: #FBEAE8;
+    --danger-ink: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--charcoal);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .wrap { width: 100%; max-width: 480px; }
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .logo-row img { width: 40px; height: 40px; object-fit: contain; }
+  .logo-row .brand { font-weight: 700; font-size: 18px; }
+  .logo-row .sub { font-size: 12px; color: var(--ink-soft); }
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.desc { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 20px; line-height: 1.5; }
+
+  /* PIN entry */
+  .pin-boxes { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; }
+  .pin-boxes input {
+    width: 44px; height: 52px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    border: 1.5px solid #ddd;
+    border-radius: 10px;
+    outline: none;
+  }
+  .pin-boxes input:focus { border-color: var(--orange); }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--orange); color: #fff; }
+  .btn-outline { background: #fff; color: var(--charcoal); border: 1.5px solid #ddd; }
+  .btn-danger-outline { background: #fff; color: var(--danger-ink); border: 1.5px solid var(--danger-ink); }
+
+  .msg { font-size: 13.5px; padding: 10px 12px; border-radius: 8px; margin-top: 12px; text-align: center; }
+  .msg-error { background: var(--danger-bg); color: var(--danger-ink); }
+  .msg-success { background: var(--success-bg); color: var(--success-ink); }
+
+  /* Summary view */
+  .rfq-meta { font-size: 13px; color: var(--ink-soft); margin-bottom: 4px; }
+  .vendor-name { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+
+  table.item-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  table.item-table th, table.item-table td {
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+  }
+  table.item-table th { color: var(--ink-soft); font-weight: 600; font-size: 11.5px; text-transform: uppercase; }
+  table.item-table td.num { text-align: right; }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13.5px;
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .summary-row.total {
+    font-weight: 700;
+    font-size: 15px;
+    border-bottom: none;
+    border-top: 1.5px solid var(--charcoal);
+    margin-top: 4px;
+    padding-top: 10px;
+  }
+  .summary-row .label { color: var(--ink-soft); }
+  .summary-row.total .label { color: var(--charcoal); }
+
+  .action-row { display: flex; gap: 10px; margin-top: 20px; }
+  .action-row .btn { flex: 1; }
+
+  textarea {
+    width: 100%;
+    min-height: 80px;
+    border: 1.5px solid #ddd;
+    border-radius: 10px;
+    padding: 10px;
+    font-family: inherit;
+    font-size: 13.5px;
+    resize: vertical;
+    margin-bottom: 12px;
+  }
+  textarea:focus { outline: none; border-color: var(--orange); }
+
+  .hidden { display: none !important; }
+
+  .status-pill {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .status-pill.confirmed { background: var(--success-bg); color: var(--success-ink); }
+  .status-pill.unconfirmed { background: var(--danger-bg); color: var(--danger-ink); }
+
+  .center-icon { text-align: center; font-size: 40px; margin-bottom: 8px; }
+  .center-text { text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo-row">
+    <img src="logo-bima.png" alt="BiMa">
+    <div>
+      <div class="brand">BiMa</div>
+      <div class="sub">Bilal Mitra Aryatama</div>
+    </div>
+  </div>
+
+  <!-- STEP 1: PIN entry -->
+  <div class="card" id="pinCard">
+    <h1>Konfirmasi Penunjukan Vendor</h1>
+    <p class="desc">Masukkan PIN konfirmasi yang telah dikirimkan ke email Anda untuk melanjutkan.</p>
+    <div class="pin-boxes" id="pinBoxes">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+      <input type="tel" maxlength="1" inputmode="numeric">
+    </div>
+    <button class="btn btn-primary" id="btnVerifyPin">Verifikasi PIN</button>
+    <div id="pinMsg"></div>
+  </div>
+
+  <!-- STEP 2: Summary + actions -->
+  <div class="card hidden" id="summaryCard">
+    <div class="rfq-meta" id="rfqLabel"></div>
+    <div class="vendor-name" id="vendorNameLabel"></div>
+
+    <table class="item-table" id="itemTable">
+      <thead>
+        <tr><th>Item</th><th class="num">Qty</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody id="itemTableBody"></tbody>
+    </table>
+
+    <div id="summaryBlock"></div>
+
+    <div class="action-row" id="actionRow">
+      <button class="btn btn-danger-outline" id="btnUnconfirm">Tidak Bisa Penuhi</button>
+      <button class="btn btn-primary" id="btnConfirm">Konfirmasi Menerima</button>
+    </div>
+
+    <div class="hidden" id="reasonBlock" style="margin-top:16px;">
+      <p class="desc" style="margin-bottom:8px;">Mohon sampaikan alasan singkat mengapa Anda tidak dapat memenuhi PO ini:</p>
+      <textarea id="reasonText" placeholder="Contoh: Stok tidak tersedia, kendala pengiriman, dll."></textarea>
+      <div class="action-row" style="margin-top:0;">
+        <button class="btn btn-outline" id="btnCancelReason">Batal</button>
+        <button class="btn btn-danger-outline" id="btnSubmitUnconfirm">Kirim</button>
+      </div>
+    </div>
+
+    <div id="actionMsg"></div>
+  </div>
+
+  <!-- STEP 3: Already decided (revisit link) -->
+  <div class="card hidden" id="statusCard">
+    <div class="center-icon" id="statusIcon"></div>
+    <h1 class="center-text" id="statusTitle"></h1>
+    <p class="desc center-text" id="statusDesc"></p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const rfqId = params.get("rfq");
+const vendorId = params.get("vendor");
+
+const FIELD = {
+  vendor: { rfqId: "RFQID", vendorId: "VendorID", pin: "PIN", confirmationStatus: "ConfirmationStatus" },
+  result: { rfqId: "RFQID", vendorId: "VendorID", itemDescription: "ItemDescription", qty: "Qty", totalPrice: "TotalPrice" },
+  summary: { rfqId: "RFQID", vendorId: "VendorID", vendorName: "VendorName", itemsSubtotal: "ItemsSubtotal", mobilisasi: "MobilisasiAwarded", otherService: "OtherServiceAwarded", ppn: "PPNAwarded", termsOfPayment: "TermsOfPayment" },
+  rfq: { id: "RFQID", noRfq: "NoRFQ" },
+};
+
+let vendorRow = null;
+let resultRows = [];
+let summaryRow = null;
+let rfqRow = null;
+
+function formatRupiah(num) {
+  return "Rp " + Math.round(Number(num) || 0).toLocaleString("id-ID");
+}
+function parseNum(v) {
+  return Number(v) || 0;
+}
+
+async function fetchSheet(sheetName) {
+  const res = await fetch(`${TRANSAKSI_URL}?sheet=${encodeURIComponent(sheetName)}`);
+  const json = await res.json();
+  if (json && json.error) throw new Error(json.error);
+  return Array.isArray(json) ? json : (json.data || []);
+}
+
+// ---- PIN input UX: auto-advance ----
+const pinInputs = document.querySelectorAll("#pinBoxes input");
+pinInputs.forEach((input, idx) => {
+  input.addEventListener("input", () => {
+    input.value = input.value.replace(/[^0-9]/g, "");
+    if (input.value && idx < pinInputs.length - 1) pinInputs[idx + 1].focus();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && !input.value && idx > 0) pinInputs[idx - 1].focus();
+  });
+});
+
+function getEnteredPin() {
+  return Array.from(pinInputs).map((i) => i.value).join("");
+}
+
+document.getElementById("btnVerifyPin").addEventListener("click", verifyPin);
+
+async function verifyPin() {
+  const pinMsg = document.getElementById("pinMsg");
+  pinMsg.innerHTML = "";
+
+  if (!rfqId || !vendorId) {
+    pinMsg.innerHTML = `<div class="msg msg-error">Link tidak valid. Silakan gunakan link dari email Anda.</div>`;
+    return;
+  }
+
+  const enteredPin = getEnteredPin();
+  if (enteredPin.length < 5) {
+    pinMsg.innerHTML = `<div class="msg msg-error">Masukkan 5 digit PIN.</div>`;
+    return;
+  }
+
+  document.getElementById("btnVerifyPin").disabled = true;
+  document.getElementById("btnVerifyPin").innerText = "Memverifikasi...";
+
+  try {
+    const vendorRows = await fetchSheet("RFQVendorTbl");
+    const f = FIELD.vendor;
+    vendorRow = vendorRows.find(
+      (r) => String(r[f.rfqId]) === String(rfqId) && String(r[f.vendorId]) === String(vendorId)
+    );
+
+    if (!vendorRow) {
+      throw new Error("Data tidak ditemukan.");
+    }
+    if (String(vendorRow[f.pin]).trim() !== enteredPin) {
+      throw new Error("PIN salah. Silakan cek kembali email Anda.");
+    }
+
+    const existingStatus = String(vendorRow[f.confirmationStatus] || "").trim();
+    if (existingStatus === "Confirmed" || existingStatus === "Unconfirmed") {
+      showAlreadyDecided(existingStatus);
+      return;
+    }
+
+    await loadSummary();
+  } catch (err) {
+    pinMsg.innerHTML = `<div class="msg msg-error">${err.message}</div>`;
+    document.getElementById("btnVerifyPin").disabled = false;
+    document.getElementById("btnVerifyPin").innerText = "Verifikasi PIN";
+  }
+}
+
+async function loadSummary() {
+  const [resultRaw, summaryRaw, rfqRaw] = await Promise.all([
+    fetchSheet("qrySelectionResultByVendor"),
+    fetchSheet("qrySelectionSummaryByVendor"),
+    fetchSheet("RFQTbl"),
+  ]);
+
+  const rf = FIELD.result;
+  const sf = FIELD.summary;
+  const qf = FIELD.rfq;
+
+  resultRows = resultRaw.filter(
+    (r) => String(r[rf.rfqId]) === String(rfqId) && String(r[rf.vendorId]) === String(vendorId)
+  );
+  summaryRow = summaryRaw.find(
+    (r) => String(r[sf.rfqId]) === String(rfqId) && String(r[sf.vendorId]) === String(vendorId)
+  );
+  rfqRow = rfqRaw.find((r) => String(r[qf.id]) === String(rfqId));
+
+  if (!summaryRow) {
+    document.getElementById("pinMsg").innerHTML = `<div class="msg msg-error">Data ringkasan belum tersedia. Hubungi Admin Purchasing.</div>`;
+    document.getElementById("btnVerifyPin").disabled = false;
+    document.getElementById("btnVerifyPin").innerText = "Verifikasi PIN";
+    return;
+  }
+
+  renderSummary();
+  document.getElementById("pinCard").classList.add("hidden");
+  document.getElementById("summaryCard").classList.remove("hidden");
+}
+
+function renderSummary() {
+  const rf = FIELD.result;
+  const sf = FIELD.summary;
+  const qf = FIELD.rfq;
+
+  document.getElementById("rfqLabel").innerText = rfqRow ? (rfqRow[qf.noRfq] || `RFQ #${rfqId}`) : `RFQ #${rfqId}`;
+  document.getElementById("vendorNameLabel").innerText = summaryRow[sf.vendorName];
+
+  const tbody = document.getElementById("itemTableBody");
+  tbody.innerHTML = resultRows.map((r) => `
+    <tr>
+      <td>${r[rf.itemDescription]}</td>
+      <td class="num">${r[rf.qty]}</td>
+      <td class="num">${formatRupiah(r[rf.totalPrice])}</td>
+    </tr>
+  `).join("");
+
+  const itemsSubtotal = parseNum(summaryRow[sf.itemsSubtotal]);
+  const mobilisasi = parseNum(summaryRow[sf.mobilisasi]);
+  const otherService = parseNum(summaryRow[sf.otherService]);
+  const ppn = parseNum(summaryRow[sf.ppn]);
+  const terms = summaryRow[sf.termsOfPayment] || "";
+  const total = itemsSubtotal + mobilisasi + otherService + ppn;
+
+  let html = `
+    <div class="summary-row"><span class="label">Mobilisasi</span><span>${formatRupiah(mobilisasi)}</span></div>
+    <div class="summary-row"><span class="label">Other Service</span><span>${formatRupiah(otherService)}</span></div>
+  `;
+  if (terms) {
+    html += `<div class="summary-row"><span class="label">Terms of Payment</span><span>${terms}</span></div>`;
+  }
+  html += `
+    <div class="summary-row"><span class="label">PPN</span><span>${formatRupiah(ppn)}</span></div>
+    <div class="summary-row total"><span class="label">TOTAL</span><span>${formatRupiah(total)}</span></div>
+  `;
+  document.getElementById("summaryBlock").innerHTML = html;
+}
+
+// ---- Confirm action ----
+document.getElementById("btnConfirm").addEventListener("click", async () => {
+  await submitDecision("Confirmed", "");
+});
+
+// ---- Unconfirmed flow: show reason box ----
+document.getElementById("btnUnconfirm").addEventListener("click", () => {
+  document.getElementById("actionRow").classList.add("hidden");
+  document.getElementById("reasonBlock").classList.remove("hidden");
+});
+document.getElementById("btnCancelReason").addEventListener("click", () => {
+  document.getElementById("reasonBlock").classList.add("hidden");
+  document.getElementById("actionRow").classList.remove("hidden");
+});
+document.getElementById("btnSubmitUnconfirm").addEventListener("click", async () => {
+  const reason = document.getElementById("reasonText").value.trim();
+  if (!reason) {
+    document.getElementById("actionMsg").innerHTML = `<div class="msg msg-error">Mohon isi alasan terlebih dahulu.</div>`;
+    return;
+  }
+  await submitDecision("Unconfirmed", reason);
+});
+
+async function submitDecision(decision, reason) {
+  const actionMsg = document.getElementById("actionMsg");
+  actionMsg.innerHTML = `<div class="msg" style="background:#f0f0f0;">Mengirim...</div>`;
+
+  const nowIso = new Date().toISOString();
+  const updates = {
+    ConfirmationStatus: decision,
+    ConfirmationDate: nowIso,
+  };
+  if (decision === "Unconfirmed") {
+    updates.RejectReason = reason;
+  }
+
+  const payload = {
+    action: "UPDATE_ROW",
+    sheetName: "RFQVendorTbl",
+    match: { RFQID: rfqId, VendorID: vendorId },
+    updates: updates,
+  };
+
+  try {
+    const res = await fetch(TRANSAKSI_URL, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const result = await res.json();
+    if (!result.success) throw new Error(result.error || "Gagal menyimpan.");
+
+    showAlreadyDecided(decision);
+  } catch (err) {
+    actionMsg.innerHTML = `<div class="msg msg-error">Gagal: ${err.message}</div>`;
+  }
+}
+
+function showAlreadyDecided(decision) {
+  document.getElementById("pinCard").classList.add("hidden");
+  document.getElementById("summaryCard").classList.add("hidden");
+  document.getElementById("statusCard").classList.remove("hidden");
+
+  if (decision === "Confirmed") {
+    document.getElementById("statusIcon").innerText = "✅";
+    document.getElementById("statusTitle").innerText = "Konfirmasi Diterima";
+    document.getElementById("statusDesc").innerText = "Terima kasih, konfirmasi Anda sudah kami terima. Tim kami akan segera memproses PO/SO.";
+  } else {
+    document.getElementById("statusIcon").innerText = "📩";
+    document.getElementById("statusTitle").innerText = "Sudah Tercatat";
+    document.getElementById("statusDesc").innerText = "Terima kasih atas informasinya. Tim kami akan menghubungi Anda untuk tindak lanjut.";
+  }
+}
+</script>
+</body>
+</html>
