@@ -126,7 +126,7 @@ function resetItemFields() {
   els.unit.value = "";
 }
 
-// ==== submit ====
+// ==== SUBMIT FORM KE GITHUB REST API ====
 els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
   showMsg("", "");
@@ -138,58 +138,108 @@ els.form.addEventListener("submit", async (e) => {
   }
 
   const user = getCurrentUser();
+  const requestId = `REQ-${Date.now()}`;
+
+  // Objek data request yang akan disimpan
   const payload = {
-    target: "Request",
-    data: {
-      DATE_REQUEST: new Date().toISOString().split("T")[0],
-      PROJECTID: els.projectId.value,
-      WO_NO: els.woNo.value,
-      ItemID: item.ID,
-      ItemDescription: item.Specification,
-      QTY: els.qty.value,
-      UNIT: els.unit.value,
-      DURATION: els.duration.value || "",
-      DurUnit: els.durationRow.hidden ? "" : els.durUnit.value,
-      CATAGORY_ID: item.CATAGORY_ID || "",
-      Item_Code: els.itemCode.value,
-      ItemGroup: els.itemGroup.value,
-      Purpose: els.purpose.value,
-      RefNo: els.refNo.value,
-      ExpectedDate: els.expectedDate.value,
-      Status: "Pending",
-      RequestBy: user.id,
-    },
+    id: requestId,
+    dateRequest: new Date().toISOString().split("T")[0],
+    projectId: els.projectId.value,
+    woNo: els.woNo.value,
+    itemId: item.ID || "",
+    itemDescription: item.Specification || "",
+    qty: Number(els.qty.value) || 0,
+    unit: els.unit.value,
+    duration: els.duration.value || "",
+    durUnit: els.durationRow.hidden ? "" : els.durUnit.value,
+    categoryId: item.CATAGORY_ID || "",
+    itemCode: els.itemCode.value,
+    itemGroup: els.itemGroup.value,
+    purpose: els.purpose.value,
+    refNo: els.refNo.value || "-",
+    expectedDate: els.expectedDate.value,
+    status: "Pending HO",
+    requestBy: user.name,
+    requestById: user.id,
+    timestamp: new Date().toISOString()
   };
 
   els.submitBtn.disabled = true;
-  els.submitBtn.textContent = "Mengirim...";
+  els.submitBtn.textContent = "Mengirim ke GitHub...";
 
   try {
-    const res = await fetch(TRANSAKSI_URL, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    const result = await res.json();
+    // Panggil fungsi simpan ke GitHub API
+    await saveRequestToGithub(payload);
 
-    if (result.success) {
-      showMsg(`Permintaan berhasil dikirim (ID #${result.id}).`, "success");
-      els.form.reset();
-      els.itemSearch.value = "";
-      els.itemSearch.placeholder = "Pilih kelompok dulu";
-      els.itemSearch.disabled = true;
-      els.itemSelectedIndex.value = "";
-      els.durationRow.hidden = true;
-      resetItemFields();
-    } else {
-      showMsg("Gagal mengirim: " + (result.error || "tidak diketahui"), "error");
-    }
+    showMsg(`Permintaan berhasil dikirim ke GitHub (ID #${requestId}).`, "success");
+    els.form.reset();
+    els.itemSearch.value = "";
+    els.itemSearch.placeholder = "Pilih kelompok dulu";
+    els.itemSearch.disabled = true;
+    els.itemSelectedIndex.value = "";
+    els.durationRow.hidden = true;
+    resetItemFields();
   } catch (err) {
-    showMsg("Gagal mengirim: " + err.message, "error");
+    showMsg("Gagal mengirim ke GitHub: " + err.message, "error");
   } finally {
     els.submitBtn.disabled = false;
     els.submitBtn.textContent = "Kirim permintaan";
   }
 });
+
+// ==== FUNGSI SIMPAN UNTUK GITHUB REST API ====
+async function saveRequestToGithub(newRequestObj) {
+  if (typeof GH_CONFIG === "undefined" || !GH_CONFIG.TOKEN) {
+    throw new Error("Konfigurasi GH_CONFIG di config.js belum diatur dengan benar.");
+  }
+
+  const url = `https://api.github.com/repos/${GH_CONFIG.OWNER}/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FILE_PATH}`;
+  const headers = {
+    "Authorization": `Bearer ${GH_CONFIG.TOKEN}`,
+    "Content-Type": "application/json",
+    "Accept": "application/vnd.github.v3+json"
+  };
+
+  let sha = "";
+  let existingData = [];
+
+  // 1. Baca data JSON yang ada di GitHub Repo
+  const getRes = await fetch(url, { headers, cache: "no-store" });
+  
+  if (getRes.status === 200) {
+    const fileInfo = await getRes.json();
+    sha = fileInfo.sha;
+    // Decode base64 UTF-8 aman
+    const jsonString = decodeURIComponent(escape(atob(fileInfo.content.replace(/\n/g, ""))));
+    existingData = JSON.parse(jsonString);
+  } else if (getRes.status !== 404) {
+    const errJson = await getRes.json();
+    throw new Error(errJson.message || `Gagal membaca file GitHub (${getRes.status})`);
+  }
+
+  // 2. Tambahkan data request baru ke array
+  existingData.push(newRequestObj);
+
+  // 3. Encode data baru ke Base64 (UTF-8 safe)
+  const updatedJsonStr = JSON.stringify(existingData, null, 2);
+  const base64Content = btoa(unescape(encodeURIComponent(updatedJsonStr)));
+
+  // 4. Update file JSON di GitHub via PUT
+  const putRes = await fetch(url, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: `Feat: Material request ${newRequestObj.id} dikirim oleh ${newRequestObj.requestBy}`,
+      content: base64Content,
+      sha: sha || undefined
+    })
+  });
+
+  if (!putRes.ok) {
+    const errData = await putRes.json();
+    throw new Error(errData.message || "Gagal memperbarui file di GitHub.");
+  }
+}
 
 function showMsg(text, type) {
   els.formMsg.textContent = text;
@@ -199,5 +249,7 @@ function showMsg(text, type) {
 // ==== init ====
 (function init() {
   const user = getCurrentUser();
-  els.requestByLabel.textContent = user.name;
+  if (els.requestByLabel) {
+    els.requestByLabel.textContent = user.name;
+  }
 })();
