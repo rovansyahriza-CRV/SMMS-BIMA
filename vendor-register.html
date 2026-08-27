@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Registrasi Vendor - BIMA</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --dark: #3d3d3d;
@@ -217,7 +218,9 @@
 </div>
 
 <script>
-const RESOURCES_API_URL = "https://script.google.com/macros/s/AKfycbzHvD3cz2Ur3WGkf_b-yIC6qNRajqZC9mx5ZmcQzr1-28vx_7EJO12Paez5VZFQt3IO/exec";
+const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 document.getElementById("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -226,46 +229,50 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
   btn.disabled = true;
   btn.textContent = "Mengirim...";
 
-  const payload = {
-    action: "REGISTER",
-    sheetName: "VendorTbl",
-    data: {
-      VendorName: document.getElementById("vendorName").value,
-      AuthorizeName: document.getElementById("authorizedName").value,
-      AuthorizeID: document.getElementById("authorizedId").value,
-      Specialist: document.getElementById("specialist").value,
-      Catagory: document.getElementById("catagory").value,
-      Address: document.getElementById("address").value,
-      ContactNo: document.getElementById("contactNo").value,
-      Email: document.getElementById("email").value,
-      NPWP: document.getElementById("npwp").value,
-      RekeningNo: document.getElementById("rekeningNo").value,
-      Bank: document.getElementById("bank").value
-    }
+  const errorEl = document.getElementById("error");
+  errorEl.style.display = "none";
+
+  const data = {
+    VendorName: document.getElementById("vendorName").value.trim(),
+    AuthorizeName: document.getElementById("authorizedName").value.trim(),
+    AuthorizeID: document.getElementById("authorizedId").value.trim(),
+    Specialist: document.getElementById("specialist").value.trim(),
+    Catagory: document.getElementById("catagory").value,
+    Address: document.getElementById("address").value.trim(),
+    ContactNo: document.getElementById("contactNo").value.trim(),
+    Email: document.getElementById("email").value.trim(),
+    NPWP: document.getElementById("npwp").value.trim(),
+    RekeningNo: document.getElementById("rekeningNo").value.trim(),
+    Bank: document.getElementById("bank").value.trim(),
+    Status: "Review",
+    VendorListDate: new Date().toISOString()
   };
 
   try {
-    const res = await fetch(RESOURCES_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    const result = await res.json();
-
-    if (!result.success && result.duplicate) {
-      const wantsUpdate = confirm(
-        result.message + "\n\nApakah email/PIC Anda memang berubah? Klik OK untuk kirim permintaan update ke admin, atau Cancel untuk membatalkan."
-      );
-      if (wantsUpdate) {
-        await sendUpdateRequest(result.vendorName, payload.data.NPWP, payload.data.Email, payload.data.ContactNo);
+    // Cek duplikat berdasarkan NPWP atau Email (kalau salah satunya diisi)
+    if (data.NPWP || data.Email) {
+      let dupQuery = supabaseClient.from("vendor").select("VendorID, VendorName, Status");
+      if (data.NPWP && data.Email) {
+        dupQuery = dupQuery.or(`NPWP.eq.${data.NPWP},Email.eq.${data.Email}`);
+      } else if (data.NPWP) {
+        dupQuery = dupQuery.eq("NPWP", data.NPWP);
       } else {
+        dupQuery = dupQuery.eq("Email", data.Email);
+      }
+      const { data: dupRows, error: dupErr } = await dupQuery;
+      if (dupErr) throw dupErr;
+
+      if (dupRows && dupRows.length > 0) {
+        errorEl.textContent = `Vendor "${dupRows[0].VendorName}" dengan NPWP/Email ini sudah terdaftar (status: ${dupRows[0].Status}). Silakan hubungi Admin jika ada perubahan data.`;
+        errorEl.style.display = "block";
         btn.disabled = false;
         btn.textContent = "Kirim Registrasi";
+        return;
       }
-      return;
     }
 
-    if (!result.success) throw new Error(result.error || "Gagal mengirim registrasi");
+    const { error: insertErr } = await supabaseClient.from("vendor").insert(data);
+    if (insertErr) throw insertErr;
 
     document.getElementById("registerForm").style.display = "none";
     const successEl = document.getElementById("success");
@@ -273,43 +280,12 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     successEl.style.display = "block";
 
   } catch (err) {
-    const errorEl = document.getElementById("error");
     errorEl.textContent = "Gagal mengirim registrasi: " + err.message;
     errorEl.style.display = "block";
     btn.disabled = false;
     btn.textContent = "Kirim Registrasi";
   }
 });
-
-async function sendUpdateRequest(vendorName, npwp, emailBaru, contactBaru) {
-  const btn = document.getElementById("submitBtn");
-  try {
-    const res = await fetch(RESOURCES_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "UPDATE_REQUEST",
-        vendorName: vendorName,
-        npwp: npwp,
-        emailBaru: emailBaru,
-        contactBaru: contactBaru
-      })
-    });
-    const result = await res.json();
-    if (!result.success) throw new Error(result.error || "Gagal mengirim permintaan update");
-
-    document.getElementById("registerForm").style.display = "none";
-    const successEl = document.getElementById("success");
-    successEl.textContent = "Permintaan update berhasil dikirim. Admin akan meninjau dan menghubungi Anda.";
-    successEl.style.display = "block";
-  } catch (err) {
-    const errorEl = document.getElementById("error");
-    errorEl.textContent = "Gagal mengirim permintaan: " + err.message;
-    errorEl.style.display = "block";
-    btn.disabled = false;
-    btn.textContent = "Kirim Registrasi";
-  }
-}
 </script>
 </body>
 </html>
