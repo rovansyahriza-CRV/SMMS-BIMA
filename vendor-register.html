@@ -249,21 +249,16 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
   };
 
   try {
-    // Cek duplikat berdasarkan NPWP atau Email (kalau salah satunya diisi)
+    // Cek duplikat berdasarkan NPWP atau Email (kalau salah satunya diisi) via RPC aman
     if (data.NPWP || data.Email) {
-      let dupQuery = supabaseClient.from("vendor").select("VendorID, VendorName, Status");
-      if (data.NPWP && data.Email) {
-        dupQuery = dupQuery.or(`NPWP.eq.${data.NPWP},Email.eq.${data.Email}`);
-      } else if (data.NPWP) {
-        dupQuery = dupQuery.eq("NPWP", data.NPWP);
-      } else {
-        dupQuery = dupQuery.eq("Email", data.Email);
-      }
-      const { data: dupRows, error: dupErr } = await dupQuery;
+      const { data: dupRows, error: dupErr } = await supabaseClient.rpc("check_vendor_duplicate", {
+        p_npwp: data.NPWP || null,
+        p_email: data.Email || null
+      });
       if (dupErr) throw dupErr;
 
       if (dupRows && dupRows.length > 0) {
-        errorEl.textContent = `Vendor "${dupRows[0].VendorName}" dengan NPWP/Email ini sudah terdaftar (status: ${dupRows[0].Status}). Silakan hubungi Admin jika ada perubahan data.`;
+        errorEl.textContent = `Vendor "${dupRows[0].vendorname}" dengan NPWP/Email ini sudah terdaftar (status: ${dupRows[0].status}). Silakan hubungi Admin jika ada perubahan data.`;
         errorEl.style.display = "block";
         btn.disabled = false;
         btn.textContent = "Kirim Registrasi";
