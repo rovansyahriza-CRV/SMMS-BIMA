@@ -317,6 +317,13 @@ async function submitDecision(rv, decision) {
     }).eq('RFQVendorID', rv.RFQVendorID);
     if (error) throw error;
 
+    if (decision === 'Confirmed') {
+      const { error: poErr } = await supabaseClient.rpc('create_purchase_order_from_confirmation', {
+        p_rfqvendorid: rv.RFQVendorID
+      });
+      if (poErr) console.warn('Gagal membuat draft PO/SO:', poErr.message);
+    }
+
     document.getElementById("app").innerHTML = "";
     const successEl = document.getElementById("success");
     successEl.textContent = decision === 'Confirmed'
