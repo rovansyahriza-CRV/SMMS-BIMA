@@ -121,8 +121,8 @@ async function resolveApproverName(managementApprovalBy) {
   const raw = String(managementApprovalBy).trim();
   if (/^\d+$/.test(raw)) {
     try {
-      const { data } = await supabaseClient.from('karyawanTbl').select('Nama').eq('Id', raw).maybeSingle();
-      if (data && data.Nama) return data.Nama;
+      const { data } = await supabaseClient.rpc('get_karyawan_name', { p_id: Number(raw) });
+      if (data) return data;
     } catch (e) { /* ignore, fall back to raw id below */ }
   }
   return raw;
