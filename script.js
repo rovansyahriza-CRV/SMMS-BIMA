@@ -1,22 +1,17 @@
+// ==== Supabase client (SUPABASE_URL / SUPABASE_KEY didefinisikan di config.js) ====
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 // ==== state ====
-let currentItems = [];
+let rowIdCounter = 0;
+const resourceCache = {}; // cache in-memory per group, dipakai semua baris
 
 const els = {
-  itemGroup: document.getElementById("itemGroup"),
-  itemSearch: document.getElementById("itemSearch"),
-  itemSelectedIndex: document.getElementById("itemSelectedIndex"),
-  itemResults: document.getElementById("itemResults"),
-  itemCode: document.getElementById("itemCode"),
-  unit: document.getElementById("unit"),
-  qty: document.getElementById("qty"),
-  durationRow: document.getElementById("durationRow"),
-  duration: document.getElementById("duration"),
-  durUnit: document.getElementById("durUnit"),
   projectId: document.getElementById("projectId"),
   woNo: document.getElementById("woNo"),
   purpose: document.getElementById("purpose"),
-  refNo: document.getElementById("refNo"),
   expectedDate: document.getElementById("expectedDate"),
+  itemRowsBody: document.getElementById("itemRowsBody"),
+  btnAddItem: document.getElementById("btnAddItem"),
   form: document.getElementById("requestForm"),
   submitBtn: document.getElementById("submitBtn"),
   formMsg: document.getElementById("formMsg"),
@@ -30,214 +25,369 @@ function getCurrentUser() {
   return { id: currentSession ? currentSession.id : "", name: currentSession ? currentSession.nama : "—" };
 }
 
-// ==== load resources (dengan cache session) ====
+// ==== load resources (cache di memori + sessionStorage, dipakai lintas baris) ====
 async function loadResourceItems(group) {
+  if (resourceCache[group]) return resourceCache[group];
+
   const cacheKey = `resources_${group}`;
   const cached = sessionStorage.getItem(cacheKey);
-  if (cached) return JSON.parse(cached);
+  if (cached) {
+    const parsed = JSON.parse(cached);
+    resourceCache[group] = parsed;
+    return parsed;
+  }
 
   const res = await fetch(`${RESOURCES_URL}?sheet=${encodeURIComponent(group)}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error);
 
   sessionStorage.setItem(cacheKey, JSON.stringify(data));
+  resourceCache[group] = data;
   return data;
 }
 
-els.itemGroup.addEventListener("change", async () => {
-  const group = els.itemGroup.value;
-  resetItemFields();
+// ==== template 1 baris item ====
+function buildItemRowHTML() {
+  return `
+    <div class="item-row">
+      <div class="item-row-head">
+        <span class="item-row-title">Item</span>
+        <button type="button" class="btn-remove-row" aria-label="Hapus item ini" title="Hapus item ini">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
 
-  els.itemSearch.disabled = true;
-  els.itemSearch.value = "";
-  els.itemSearch.placeholder = "Memuat item...";
-  els.itemResults.hidden = true;
+      <div class="field-row">
+        <div class="field">
+          <label>Kelompok item</label>
+          <select class="row-group">
+            <option value="" disabled selected>Pilih kelompok</option>
+            <option value="Material">Material</option>
+            <option value="Consumables">Consumables</option>
+            <option value="Tools">Tools</option>
+            <option value="HeavyEquipment">Heavy equipment</option>
+            <option value="ServiceOrder">Service</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Item</label>
+          <div class="combobox">
+            <input type="text" class="row-search" placeholder="Pilih kelompok dulu" disabled autocomplete="off">
+            <input type="hidden" class="row-selected-index" value="">
+            <div class="combobox-list row-results" hidden></div>
+          </div>
+        </div>
+      </div>
 
-  els.durationRow.hidden = !RENTAL_GROUPS.includes(group);
+      <div class="field-row three">
+        <div class="field">
+          <label>Item code</label>
+          <input type="text" class="row-code" readonly placeholder="—">
+        </div>
+        <div class="field">
+          <label>Satuan</label>
+          <input type="text" class="row-unit" readonly placeholder="—">
+        </div>
+        <div class="field">
+          <label>Jumlah</label>
+          <input type="number" class="row-qty" min="1" step="1" placeholder="0">
+        </div>
+      </div>
 
-  try {
-    currentItems = await loadResourceItems(group);
-    els.itemSearch.placeholder = `Ketik untuk cari (${currentItems.length} item)`;
-    els.itemSearch.disabled = false;
-  } catch (err) {
-    els.itemSearch.placeholder = "Gagal memuat item";
-    showMsg("Gagal memuat daftar item: " + err.message, "error");
-  }
-});
+      <div class="field-row two row-duration-row" hidden>
+        <div class="field">
+          <label>Durasi sewa</label>
+          <input type="number" class="row-duration" min="1" step="1" placeholder="0">
+        </div>
+        <div class="field">
+          <label>Satuan durasi</label>
+          <select class="row-durunit">
+            <option value="Hari">Hari</option>
+            <option value="Minggu">Minggu</option>
+            <option value="Bulan">Bulan</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
+}
 
-els.itemSearch.addEventListener("input", () => {
-  els.itemSelectedIndex.value = "";
-  resetItemFields();
-  renderItemResults(els.itemSearch.value.trim().toLowerCase());
-});
+function resetRowItemFields(rowEl) {
+  rowEl.querySelector(".row-code").value = "";
+  rowEl.querySelector(".row-unit").value = "";
+}
 
-els.itemSearch.addEventListener("focus", () => {
-  if (els.itemSearch.value.trim() !== "") {
-    renderItemResults(els.itemSearch.value.trim().toLowerCase());
-  }
-});
+function wireItemRow(rowEl) {
+  rowEl._items = [];
 
-document.addEventListener("click", (e) => {
-  if (!els.itemResults.contains(e.target) && e.target !== els.itemSearch) {
-    els.itemResults.hidden = true;
-  }
-});
+  const groupEl = rowEl.querySelector(".row-group");
+  const searchEl = rowEl.querySelector(".row-search");
+  const selIndexEl = rowEl.querySelector(".row-selected-index");
+  const resultsEl = rowEl.querySelector(".row-results");
+  const durationRowEl = rowEl.querySelector(".row-duration-row");
 
-function renderItemResults(query) {
+  groupEl.addEventListener("change", async () => {
+    const group = groupEl.value;
+    selIndexEl.value = "";
+    resetRowItemFields(rowEl);
+    searchEl.value = "";
+    searchEl.disabled = true;
+    searchEl.placeholder = "Memuat item...";
+    resultsEl.hidden = true;
+    durationRowEl.hidden = !RENTAL_GROUPS.includes(group);
+
+    try {
+      rowEl._items = await loadResourceItems(group);
+      searchEl.placeholder = `Ketik untuk cari (${rowEl._items.length} item)`;
+      searchEl.disabled = false;
+    } catch (err) {
+      searchEl.placeholder = "Gagal memuat item";
+      showMsg("Gagal memuat daftar item: " + err.message, "error");
+    }
+  });
+
+  searchEl.addEventListener("input", () => {
+    selIndexEl.value = "";
+    resetRowItemFields(rowEl);
+    renderRowResults(rowEl, searchEl.value.trim().toLowerCase());
+  });
+
+  searchEl.addEventListener("focus", () => {
+    if (searchEl.value.trim() !== "") {
+      renderRowResults(rowEl, searchEl.value.trim().toLowerCase());
+    }
+  });
+
+  rowEl.querySelector(".btn-remove-row").addEventListener("click", () => removeRequestRow(rowEl));
+}
+
+function renderRowResults(rowEl, query) {
+  const items = rowEl._items || [];
+  const resultsEl = rowEl.querySelector(".row-results");
+
   const filtered = query
-    ? currentItems.filter((item) => {
+    ? items.filter((item) => {
         const haystack = `${item.Group || ""} ${item.Specification} ${item.Size || ""} ${item.Item_Code || ""}`.toLowerCase();
         return haystack.includes(query);
       })
-    : currentItems;
+    : items;
 
-  els.itemResults.innerHTML = "";
+  resultsEl.innerHTML = "";
 
   if (filtered.length === 0) {
-    els.itemResults.innerHTML = `<div class="combobox-empty">Item tidak ditemukan</div>`;
-    els.itemResults.hidden = false;
+    resultsEl.innerHTML = `<div class="combobox-empty">Item tidak ditemukan</div>`;
+    resultsEl.hidden = false;
     return;
   }
 
   filtered.slice(0, 50).forEach((item) => {
-    const realIndex = currentItems.indexOf(item);
+    const realIndex = items.indexOf(item);
     const row = document.createElement("div");
     row.className = "combobox-item";
     row.innerHTML = `${item.Specification} <span class="code">${item.Group ? "· " + item.Group : ""}${item.Size ? " · " + item.Size : ""}${item.Item_Code ? " · " + item.Item_Code : ""}</span>`;
-    row.addEventListener("click", () => selectItem(realIndex));
-    els.itemResults.appendChild(row);
+    row.addEventListener("click", () => selectRowItem(rowEl, realIndex));
+    resultsEl.appendChild(row);
   });
 
-  els.itemResults.hidden = false;
+  resultsEl.hidden = false;
 }
 
-function selectItem(index) {
-  const item = currentItems[index];
+function selectRowItem(rowEl, index) {
+  const items = rowEl._items || [];
+  const item = items[index];
   if (!item) return;
-  els.itemSelectedIndex.value = index;
-  els.itemSearch.value = `${item.Group ? item.Group + " — " : ""}${item.Specification}${item.Size ? " (" + item.Size + ")" : ""}`;
-  els.itemCode.value = item.Item_Code || item.ID || "";
-  els.unit.value = item.Unit || "";
-  els.itemResults.hidden = true;
+  rowEl.querySelector(".row-selected-index").value = index;
+  rowEl.querySelector(".row-search").value = `${item.Group ? item.Group + " — " : ""}${item.Specification}${item.Size ? " (" + item.Size + ")" : ""}`;
+  rowEl.querySelector(".row-code").value = item.Item_Code || item.ID || "";
+  rowEl.querySelector(".row-unit").value = item.Unit || "";
+  rowEl.querySelector(".row-results").hidden = true;
 }
 
-function resetItemFields() {
-  els.itemCode.value = "";
-  els.unit.value = "";
+// tutup daftar hasil pencarian kalau klik di luar combobox baris manapun
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".item-row").forEach((rowEl) => {
+    const combo = rowEl.querySelector(".combobox");
+    if (combo && !combo.contains(e.target)) {
+      rowEl.querySelector(".row-results").hidden = true;
+    }
+  });
+});
+
+// ==== tambah / hapus baris ====
+function addRequestRow() {
+  rowIdCounter += 1;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = buildItemRowHTML();
+  const rowEl = wrapper.firstElementChild;
+  rowEl.dataset.rowId = rowIdCounter;
+  els.itemRowsBody.appendChild(rowEl);
+  wireItemRow(rowEl);
+  renumberRows();
 }
 
-// ==== SUBMIT FORM KE GITHUB REST API ====
-els.form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  showMsg("", "");
+function removeRequestRow(rowEl) {
+  const rows = els.itemRowsBody.querySelectorAll(".item-row");
 
-  const item = currentItems[els.itemSelectedIndex.value];
-  if (!item) {
-    showMsg("Pilih item dari daftar pencarian terlebih dahulu.", "error");
+  if (rows.length <= 1) {
+    // minimal 1 baris harus tetap ada — kosongkan isinya saja
+    rowEl.querySelector(".row-group").value = "";
+    const searchEl = rowEl.querySelector(".row-search");
+    searchEl.value = "";
+    searchEl.disabled = true;
+    searchEl.placeholder = "Pilih kelompok dulu";
+    rowEl.querySelector(".row-selected-index").value = "";
+    resetRowItemFields(rowEl);
+    rowEl.querySelector(".row-qty").value = "";
+    rowEl.querySelector(".row-duration-row").hidden = true;
+    rowEl.querySelector(".row-duration").value = "";
+    rowEl._items = [];
     return;
   }
 
-  const user = getCurrentUser();
-  const requestId = `REQ-${Date.now()}`;
+  rowEl.remove();
+  renumberRows();
+}
 
-  // Objek data request yang akan disimpan
-  const payload = {
-    id: requestId,
-    dateRequest: new Date().toISOString().split("T")[0],
-    projectId: els.projectId.value,
+function renumberRows() {
+  const rows = els.itemRowsBody.querySelectorAll(".item-row");
+  rows.forEach((rowEl, idx) => {
+    rowEl.querySelector(".item-row-title").textContent = `Item #${idx + 1}`;
+  });
+}
+
+els.btnAddItem.addEventListener("click", addRequestRow);
+
+// ==== SUBMIT FORM (batch, bisa banyak item sekaligus) ke Supabase ====
+// Mekanisme ini disamakan dengan Create Request di desktop app:
+// 1. Generate No. Referensi otomatis lewat RPC generate_refno()
+// 2. Insert 1 baris ke tabel "request_approval" (RefNo, ProjectID, CurrentLevel: 'Review')
+// 3. Insert semua item ke tabel "request" (satu baris per item, Status: 'Menunggu Review')
+// Data umum (Project ID/WO/Purpose/Tanggal) sama untuk semua item dalam 1 pengiriman.
+els.form.addEventListener("submit", handleBatchSubmitRequest);
+
+async function handleBatchSubmitRequest(e) {
+  e.preventDefault();
+  showMsg("", "");
+
+  const projectIdNum = Number(els.projectId.value);
+  if (!els.projectId.value || Number.isNaN(projectIdNum)) {
+    showMsg("Project ID harus berupa angka.", "error");
+    return;
+  }
+  if (!els.woNo.value.trim()) {
+    showMsg("Nomor WO wajib diisi.", "error");
+    return;
+  }
+  if (!els.purpose.value.trim()) {
+    showMsg("Keperluan wajib diisi.", "error");
+    return;
+  }
+  if (!els.expectedDate.value) {
+    showMsg("Tanggal dibutuhkan wajib diisi.", "error");
+    return;
+  }
+
+  const rowEls = Array.from(els.itemRowsBody.querySelectorAll(".item-row"));
+  if (rowEls.length === 0) {
+    showMsg("Tambahkan minimal 1 item barang.", "error");
+    return;
+  }
+
+  const itemsData = [];
+  for (let i = 0; i < rowEls.length; i++) {
+    const rowEl = rowEls[i];
+    const items = rowEl._items || [];
+    const selIndex = rowEl.querySelector(".row-selected-index").value;
+    const item = items[selIndex];
+    const qty = Number(rowEl.querySelector(".row-qty").value);
+    const group = rowEl.querySelector(".row-group").value;
+
+    if (!group) {
+      showMsg(`Item #${i + 1}: pilih kelompok item terlebih dahulu.`, "error");
+      return;
+    }
+    if (!item) {
+      showMsg(`Item #${i + 1}: pilih item dari daftar pencarian terlebih dahulu.`, "error");
+      return;
+    }
+    if (!qty || qty <= 0) {
+      showMsg(`Item #${i + 1}: jumlah harus diisi dan lebih dari 0.`, "error");
+      return;
+    }
+
+    const isRental = RENTAL_GROUPS.includes(group);
+    itemsData.push({
+      ItemID: item.ID ? Number(item.ID) : null,
+      ItemDescription: item.Specification || "",
+      QTY: qty,
+      UNIT: rowEl.querySelector(".row-unit").value,
+      Duration: isRental ? (Number(rowEl.querySelector(".row-duration").value) || null) : null,
+      DurUnit: isRental ? rowEl.querySelector(".row-durunit").value : null,
+      CATAGORY_ID: item.CATAGORY_ID ? Number(item.CATAGORY_ID) : null,
+      Item_Code: rowEl.querySelector(".row-code").value ? Number(rowEl.querySelector(".row-code").value) : null,
+      ItemGroup: group,
+    });
+  }
+
+  const user = getCurrentUser();
+  const today = new Date().toISOString().split("T")[0];
+  const headerData = {
+    projectId: projectIdNum,
     woNo: els.woNo.value,
-    itemId: item.ID || "",
-    itemDescription: item.Specification || "",
-    qty: Number(els.qty.value) || 0,
-    unit: els.unit.value,
-    duration: els.duration.value || "",
-    durUnit: els.durationRow.hidden ? "" : els.durUnit.value,
-    categoryId: item.CATAGORY_ID || "",
-    itemCode: els.itemCode.value,
-    itemGroup: els.itemGroup.value,
     purpose: els.purpose.value,
-    refNo: els.refNo.value || "-",
     expectedDate: els.expectedDate.value,
-    status: "Pending HO",
-    requestBy: user.name,
-    requestById: user.id,
-    timestamp: new Date().toISOString()
   };
 
   els.submitBtn.disabled = true;
-  els.submitBtn.textContent = "Mengirim ke GitHub...";
+  els.submitBtn.textContent = "Mengirim semua item...";
 
   try {
-    // Panggil fungsi simpan ke GitHub API
-    await saveRequestToGithub(payload);
+    const { data: generatedRefNo, error: refError } = await supabaseClient.rpc("generate_refno");
+    if (refError) throw refError;
 
-    showMsg(`Permintaan berhasil dikirim ke GitHub (ID #${requestId}).`, "success");
+    const { error: approvalError } = await supabaseClient.from("request_approval").insert({
+      RefNo: generatedRefNo,
+      ProjectID: headerData.projectId,
+      CurrentLevel: "Review",
+    });
+    if (approvalError) throw approvalError;
+
+    const payloadToInsert = itemsData.map((it) => ({
+      DATE_REQUEST: today,
+      PROJECTID: headerData.projectId,
+      WO_NO: headerData.woNo,
+      ItemID: it.ItemID,
+      ItemDescription: it.ItemDescription,
+      QTY: it.QTY,
+      UNIT: it.UNIT,
+      Duration: it.Duration,
+      DurUnit: it.DurUnit,
+      CATAGORY_ID: it.CATAGORY_ID,
+      Item_Code: it.Item_Code,
+      ItemGroup: it.ItemGroup,
+      Purpose: headerData.purpose,
+      RefNo: generatedRefNo,
+      ExpectedDate: headerData.expectedDate,
+      Status: "Menunggu Review",
+      RequestBy: user.name,
+    }));
+
+    const { error } = await supabaseClient.from("request").insert(payloadToInsert);
+    if (error) throw error;
+
+    showMsg(`Berhasil! ${payloadToInsert.length} item terkirim dengan No. Referensi ${generatedRefNo}.`, "success");
+
     els.form.reset();
-    els.itemSearch.value = "";
-    els.itemSearch.placeholder = "Pilih kelompok dulu";
-    els.itemSearch.disabled = true;
-    els.itemSelectedIndex.value = "";
-    els.durationRow.hidden = true;
-    resetItemFields();
+    els.itemRowsBody.innerHTML = "";
+    rowIdCounter = 0;
+    addRequestRow();
   } catch (err) {
-    showMsg("Gagal mengirim ke GitHub: " + err.message, "error");
+    showMsg("Gagal mengirim permintaan: " + err.message, "error");
   } finally {
     els.submitBtn.disabled = false;
-    els.submitBtn.textContent = "Kirim permintaan";
-  }
-});
-
-// ==== FUNGSI SIMPAN UNTUK GITHUB REST API ====
-async function saveRequestToGithub(newRequestObj) {
-  if (typeof GH_CONFIG === "undefined" || !GH_CONFIG.TOKEN) {
-    throw new Error("Konfigurasi GH_CONFIG di config.js belum diatur dengan benar.");
-  }
-
-  const url = `https://api.github.com/repos/${GH_CONFIG.OWNER}/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FILE_PATH}`;
-  const headers = {
-    "Authorization": `Bearer ${GH_CONFIG.TOKEN}`,
-    "Content-Type": "application/json",
-    "Accept": "application/vnd.github.v3+json"
-  };
-
-  let sha = "";
-  let existingData = [];
-
-  // 1. Baca data JSON yang ada di GitHub Repo
-  const getRes = await fetch(url, { headers, cache: "no-store" });
-  
-  if (getRes.status === 200) {
-    const fileInfo = await getRes.json();
-    sha = fileInfo.sha;
-    // Decode base64 UTF-8 aman
-    const jsonString = decodeURIComponent(escape(atob(fileInfo.content.replace(/\n/g, ""))));
-    existingData = JSON.parse(jsonString);
-  } else if (getRes.status !== 404) {
-    const errJson = await getRes.json();
-    throw new Error(errJson.message || `Gagal membaca file GitHub (${getRes.status})`);
-  }
-
-  // 2. Tambahkan data request baru ke array
-  existingData.push(newRequestObj);
-
-  // 3. Encode data baru ke Base64 (UTF-8 safe)
-  const updatedJsonStr = JSON.stringify(existingData, null, 2);
-  const base64Content = btoa(unescape(encodeURIComponent(updatedJsonStr)));
-
-  // 4. Update file JSON di GitHub via PUT
-  const putRes = await fetch(url, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      message: `Feat: Material request ${newRequestObj.id} dikirim oleh ${newRequestObj.requestBy}`,
-      content: base64Content,
-      sha: sha || undefined
-    })
-  });
-
-  if (!putRes.ok) {
-    const errData = await putRes.json();
-    throw new Error(errData.message || "Gagal memperbarui file di GitHub.");
+    els.submitBtn.textContent = "Kirim Semua Item Request";
   }
 }
 
@@ -252,4 +402,5 @@ function showMsg(text, type) {
   if (els.requestByLabel) {
     els.requestByLabel.textContent = user.name;
   }
+  addRequestRow();
 })();
