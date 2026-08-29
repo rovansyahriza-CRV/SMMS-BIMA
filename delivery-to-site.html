@@ -67,8 +67,14 @@
   <div id="locBanner" class="banner-info">Mengunci lokasi GPS...</div>
 
   <div id="entryCard" class="card" style="display:none;">
-    <p class="card-label">Verifikasi Pengirim</p>
-    <button id="btnStartQr" class="btn-block btn-accent">📷 Scan QR Badge</button>
+    <p class="card-label" id="entryCardLabel">Verifikasi Pengirim</p>
+    <button id="btnStartFaceFirst" class="btn-block btn-accent">📸 Scan Wajah</button>
+    <button id="btnShowQrOption" class="btn-block btn-secondary">📷 Atau Scan QR Code</button>
+  </div>
+
+  <div id="qrCard" class="card" style="display:none;">
+    <p class="card-label">Scan QR Badge</p>
+    <button id="btnStartQrScan" class="btn-block btn-primary">📷 Buka Kamera & Scan QR</button>
   </div>
 
   <div id="matchInfo" class="banner-ok"></div>
@@ -84,6 +90,7 @@
 
   <p id="status">Menyiapkan...</p>
   <button id="btnScanFace" class="btn-block btn-accent" style="display:none;">📸 Scan Wajah</button>
+  <button id="btnSwitchFaceCam" class="btn-block btn-secondary" style="display:none;">🔄 Ganti Kamera</button>
 
   <div id="deliveryCard" class="card" style="display:none;">
     <p class="card-label">Form Delivery</p>
@@ -114,12 +121,22 @@ const SUPABASE_URL = "https://nhmpwjriextmbotmvvbu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FACE_MATCH_THRESHOLD = 0.45;
+const AMBIGUITY_MARGIN = 0.12;
 
 let qrCodeId = "";
-let currentKaryawanId = null;
-let currentKaryawanNama = "";
 let refDescriptor = null;
+let allFaceData = null;
+let matchMode = "1:1"; // "1:1" (QR dulu) atau "1:N" (wajah dulu, cari dari semua)
 let matchedLocation = null;
+let currentFacingModeFace = "user"; // default kamera depan buat wajah sendiri
+
+let pendingKarId = null, pendingKarNama = "";
+
+// Verifikasi 2 orang per pengiriman: Pengirim dulu, baru Penerima -- masing-masing
+// pilih scan wajah ATAU scan QR sendiri, keduanya berlaku 1x untuk semua item.
+let verificationStage = "pengirim"; // "pengirim" -> "penerima" -> selesai
+let pengirimId = null, pengirimNama = "";
+let penerimaId = null, penerimaNama = "";
 
 const locBanner = document.getElementById('locBanner');
 const resultBanner = document.getElementById('resultBanner');
@@ -130,6 +147,7 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const qrGuide = document.getElementById('qrGuide');
 const btnScanFace = document.getElementById('btnScanFace');
+const btnSwitchFaceCam = document.getElementById('btnSwitchFaceCam');
 const faceGuideOval = document.getElementById('faceGuideOval');
 const faceGuideHint = document.getElementById('faceGuideHint');
 const btnRetry = document.getElementById('btnRetry');
@@ -171,9 +189,63 @@ function initGPS() {
   }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
 
-// ============ 2. Scan QR badge pengirim ============
-document.getElementById('btnStartQr').onclick = async () => {
+// ============ 2a. Entry: pilih Scan Wajah (1:N) atau Scan QR (1:1) ============
+document.getElementById('btnStartFaceFirst').onclick = async () => {
   document.getElementById('entryCard').style.display = "none";
+  matchMode = "1:N";
+  await startFaceOnlyCapture();
+};
+
+document.getElementById('btnShowQrOption').onclick = () => {
+  document.getElementById('entryCard').style.display = "none";
+  document.getElementById('qrCard').style.display = "block";
+};
+
+let faceModelsLoaded = false;
+async function loadFaceModels() {
+  if (faceModelsLoaded) return;
+  const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights";
+  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+  await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+  faceModelsLoaded = true;
+}
+
+// ============ 2b. Mode 1:N -- scan wajah dulu, sistem cari sendiri dari semua terdaftar ============
+async function startFaceOnlyCapture() {
+  setStatus("Memuat model wajah...", "info");
+  statusEl.style.display = "block";
+  try {
+    await loadFaceModels();
+  } catch (e) {
+    setStatus("❌ Gagal memuat model wajah: " + e.message, "fail");
+    showRetry();
+    return;
+  }
+
+  setStatus("Mengambil data wajah karyawan...", "info");
+  try {
+    const { data, error } = await supabaseClient.rpc('get_all_face_data');
+    if (error) throw error;
+    allFaceData = data || [];
+  } catch (e) {
+    setStatus("❌ Gagal ambil data wajah: " + e.message, "fail");
+    showRetry();
+    return;
+  }
+  if (!allFaceData || allFaceData.length === 0) {
+    setStatus("❌ Belum ada data wajah terdaftar. Hubungi admin.", "fail");
+    showRetry();
+    return;
+  }
+
+  await openFaceCameraAndPrompt();
+}
+
+// ============ 2c. Mode 1:1 -- scan QR dulu, ambil descriptor 1 orang ============
+document.getElementById('btnStartQrScan').onclick = async () => {
+  document.getElementById('qrCard').style.display = "none";
+  matchMode = "1:1";
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } });
     video.srcObject = stream;
@@ -181,6 +253,7 @@ document.getElementById('btnStartQr').onclick = async () => {
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     wrap.style.display = "block";
     qrGuide.style.display = "block";
+    statusEl.style.display = "block";
     setStatus("Arahkan QR badge ke kamera...", "info");
     qrScanning = true;
     scanQRLoop();
@@ -209,7 +282,7 @@ async function scanQRLoop() {
         } catch (e) { /* bukan URL, pakai apa adanya */ }
         qrCodeId = extracted.trim().toUpperCase();
         setStatus("✅ QR terbaca: " + qrCodeId, "ok");
-        startFaceVerification();
+        await proceedWithQr();
         return;
       }
     }
@@ -217,18 +290,7 @@ async function scanQRLoop() {
   }
 }
 
-// ============ 3. Verifikasi wajah (1:1, via RPC get_face_descriptor) ============
-let faceModelsLoaded = false;
-async function loadFaceModels() {
-  if (faceModelsLoaded) return;
-  const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights";
-  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-  faceModelsLoaded = true;
-}
-
-async function startFaceVerification() {
+async function proceedWithQr() {
   setStatus("Memuat model wajah...", "info");
   try {
     await loadFaceModels();
@@ -264,19 +326,25 @@ async function startFaceVerification() {
       showRetry();
       return;
     }
-    currentKaryawanId = karRow.id;
-    currentKaryawanNama = karRow.nama;
+    pendingKarId = karRow.id;
+    pendingKarNama = karRow.nama;
   } catch (e) {
     setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
     showRetry();
     return;
   }
 
+  await openFaceCameraAndPrompt();
+}
+
+// ============ 3. Kamera wajah bersama (default depan, bisa ganti) ============
+async function openFaceCameraAndPrompt() {
   try {
     if (!video.srcObject) {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingModeFace, width: { ideal: 1280 }, height: { ideal: 720 } } });
       video.srcObject = stream;
       await video.play();
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       wrap.style.display = "block";
     }
   } catch (e) {
@@ -291,8 +359,23 @@ async function startFaceVerification() {
   faceGuideHint.innerText = "Posisikan wajah di dalam oval, lalu tekan Scan Wajah";
   btnScanFace.style.display = "block";
   btnScanFace.disabled = false;
+  btnSwitchFaceCam.style.display = "block";
 }
 
+btnSwitchFaceCam.onclick = async () => {
+  currentFacingModeFace = currentFacingModeFace === "user" ? "environment" : "user";
+  if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingModeFace, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    video.srcObject = stream;
+    await video.play();
+    setStatus(`Kamera diganti ke: ${currentFacingModeFace === "user" ? "Depan" : "Belakang"}`, "info");
+  } catch (e) {
+    setStatus("❌ Gagal ganti kamera: " + e.message, "fail");
+  }
+};
+
+// ============ 4. Tekan Scan Wajah -- cabang 1:1 vs 1:N ============
 btnScanFace.onclick = async () => {
   btnScanFace.disabled = true;
   setStatus("Mendeteksi wajah...", "info");
@@ -312,27 +395,95 @@ btnScanFace.onclick = async () => {
     return;
   }
 
+  if (matchMode === "1:N") {
+    let sorted = allFaceData.map(p => ({
+      qrcodeid: p.qrcodeid,
+      nama: p.nama,
+      distance: faceapi.euclideanDistance(detection.descriptor, p.facecode)
+    })).sort((a, b) => a.distance - b.distance);
+
+    const best = sorted[0];
+    const secondBest = sorted[1];
+    const withinThreshold = best && best.distance <= FACE_MATCH_THRESHOLD;
+    const isAmbiguous = secondBest && (secondBest.distance - best.distance) < AMBIGUITY_MARGIN;
+
+    if (!withinThreshold) {
+      setStatus(`❌ Wajah tidak dikenali (jarak terdekat: ${best ? best.distance.toFixed(3) : '-'}). Coba lagi, atau pakai QR Code.`, "fail");
+      btnScanFace.disabled = false;
+      return;
+    }
+    if (isAmbiguous) {
+      setStatus(`⚠️ Wajah mirip lebih dari satu orang terdaftar. Demi keamanan, pakai QR Code untuk kepastian.`, "fail");
+      btnScanFace.disabled = false;
+      return;
+    }
+
+    qrCodeId = best.qrcodeid;
+    try {
+      const { data: kar, error: karErr } = await supabaseClient.rpc('get_karyawan_by_qrcode', { p_qrcode: qrCodeId });
+      if (karErr) throw karErr;
+      const karRow = Array.isArray(kar) ? kar[0] : kar;
+      if (!karRow) {
+        setStatus("❌ Karyawan tidak ditemukan.", "fail");
+        btnScanFace.disabled = false;
+        return;
+      }
+      pendingKarId = karRow.id;
+      pendingKarNama = karRow.nama;
+    } catch (e) {
+      setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
+      btnScanFace.disabled = false;
+      return;
+    }
+
+    finalizeVerification();
+    return;
+  }
+
+  // ---- mode 1:1 (identitas sudah pasti dari QR) ----
   const distance = faceapi.euclideanDistance(detection.descriptor, refDescriptor);
   if (distance > FACE_MATCH_THRESHOLD) {
     setStatus("❌ Wajah tidak cocok (jarak: " + distance.toFixed(3) + "). Coba lagi.", "fail");
     btnScanFace.disabled = false;
     return;
   }
+  finalizeVerification();
+};
 
+function finalizeVerification() {
   setStatus("✅ Wajah cocok!", "ok");
   faceGuideOval.style.display = "none";
   faceGuideHint.style.display = "none";
   btnScanFace.style.display = "none";
+  btnSwitchFaceCam.style.display = "none";
   if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  video.srcObject = null;
   wrap.style.display = "none";
 
   matchInfoEl.style.display = "block";
-  matchInfoEl.innerText = `✅ Terverifikasi: ${currentKaryawanNama} (${qrCodeId})`;
 
-  await showDeliveryForm();
-};
+  if (verificationStage === "pengirim") {
+    pengirimId = pendingKarId;
+    pengirimNama = pendingKarNama;
+    matchInfoEl.innerHTML = `✅ Pengirim: ${pengirimNama}`;
 
-// ============ 4. Form delivery ============
+    // lanjut ke tahap scan Penerima -- reset state, tampilkan lagi kartu pilihan
+    verificationStage = "penerima";
+    qrCodeId = ""; refDescriptor = null; allFaceData = null;
+    pendingKarId = null; pendingKarNama = "";
+    statusEl.style.display = "none";
+    document.getElementById('entryCardLabel').textContent = "Verifikasi Penerima";
+    document.getElementById('entryCard').style.display = "block";
+    return;
+  }
+
+  penerimaId = pendingKarId;
+  penerimaNama = pendingKarNama;
+  matchInfoEl.innerHTML = `✅ Pengirim: ${pengirimNama}<br>✅ Penerima: ${penerimaNama}`;
+  showDeliveryForm();
+}
+
+// ============ 5. Form delivery ============
 async function showDeliveryForm() {
   statusEl.style.display = "none";
   document.getElementById('destSite').value = matchedLocation ? matchedLocation.namalokasi : "";
@@ -453,7 +604,8 @@ document.getElementById('btnSubmitDelivery').onclick = async () => {
       POID: Number(poId),
       PODetailID: it.podetailId,
       QtyDelivered: it.qty,
-      DeliveredBy: currentKaryawanId,
+      PengirimBy: pengirimId,
+      DeliveredBy: penerimaId,
       DestinationSite: matchedLocation ? matchedLocation.namalokasi : null,
       SuratJalanNo: suratJalanNo,
       Notes: notes
@@ -462,7 +614,7 @@ document.getElementById('btnSubmitDelivery').onclick = async () => {
     const { error } = await supabaseClient.from('delivery').insert(payload);
     if (error) throw error;
     document.getElementById('deliveryCard').style.display = "none";
-    showBanner(resultBanner, `✅ Delivery berhasil disimpan (${payload.length} item). No. Surat Jalan: <strong>${suratJalanNo}</strong>, oleh ${currentKaryawanNama}.`, "ok");
+    showBanner(resultBanner, `✅ Delivery berhasil disimpan (${payload.length} item). No. Surat Jalan: <strong>${suratJalanNo}</strong>.<br>Pengirim: ${pengirimNama} · Penerima: ${penerimaNama}.`, "ok");
   } catch (e) {
     showBanner(resultBanner, "🔴 Gagal menyimpan delivery: " + e.message, "fail");
   } finally {
