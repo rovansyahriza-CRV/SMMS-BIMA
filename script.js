@@ -200,7 +200,7 @@ function selectRowItem(rowEl, index) {
   if (!item) return;
   rowEl.querySelector(".row-selected-index").value = index;
   rowEl.querySelector(".row-search").value = `${item.Group ? item.Group + " — " : ""}${item.Specification}${item.Size ? " (" + item.Size + ")" : ""}`;
-  rowEl.querySelector(".row-code").value = item.Item_Code || item.ID || "";
+  rowEl.querySelector(".row-code").value = item.Item_Code || "";
   rowEl.querySelector(".row-unit").value = item.Unit || "";
   rowEl.querySelector(".row-results").hidden = true;
 }
