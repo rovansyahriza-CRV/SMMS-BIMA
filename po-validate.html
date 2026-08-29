@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validasi Dokumen PO/SO</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 16px; color: #2C3E50; background: #fdf6f3; }
+  h2 { margin-bottom: 4px; color: #3d3d3d; }
+  .meta { color: #8a8a8a; margin-bottom: 20px; }
+
+  .rfq-card {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(61, 61, 61, 0.12);
+    padding: 32px;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; border: none; }
+  th, td { border: none; border-bottom: 1px solid #eee; padding: 12px 10px; font-size: 14px; text-align: left; }
+  th { background: #3d3d3d; color: white; }
+  th:first-child { border-top-left-radius: 8px; }
+  th:last-child { border-top-right-radius: 8px; }
+
+  .brand { text-align: center; margin-bottom: 24px; }
+  .brand img { height: 56px; }
+  .brand .powered { font-size: 10px; color: #999; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 6px; }
+
+  .status-banner {
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .status-banner .icon {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; flex-shrink: 0; color: #fff;
+  }
+  .status-banner.valid { background: #D5F4E6; }
+  .status-banner.valid .icon { background: #1E8449; }
+  .status-banner.valid .title { color: #1E8449; }
+  .status-banner.warning { background: #FCF3CF; }
+  .status-banner.warning .icon { background: #B7950B; }
+  .status-banner.warning .title { color: #7D6608; }
+  .status-banner.invalid { background: #FADBD8; }
+  .status-banner.invalid .icon { background: #C0392B; }
+  .status-banner.invalid .title { color: #C0392B; }
+  .status-banner .title { font-weight: 800; font-size: 16px; margin-bottom: 2px; }
+  .status-banner .desc { font-size: 13px; color: #5d5d5d; }
+
+  .summary { border-top: 2px solid #eee; margin: 16px 0; padding-top: 12px; }
+  .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 15px; border-bottom: 1px dashed #eee; }
+  .summary-row .label { color: #8a8580; }
+  .summary-row .value { font-weight: 600; color: #3d3d3d; text-align: right; }
+  .summary-row.total { font-weight: bold; font-size: 18px; border-top: 1px solid #eee; border-bottom: none; margin-top: 4px; padding-top: 10px; color: #E8562C; }
+
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8A8580;
+    margin: 24px 0 10px;
+  }
+
+  .terbilang { font-size: 13px; font-style: italic; color: #666; margin-top: 8px; }
+  .footer-note { font-size: 11px; color: #aaa; text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <img src="logo-bima.png" alt="BIMA - Bilal Mitra Aryatama" onerror="this.style.display='none'">
+  <div class="powered">Powered by Fusion Four</div>
+</div>
+
+<div id="app">
+  <div class="rfq-card" style="text-align:center; color:#8a8a8a;">Memvalidasi dokumen...</div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function fmtRupiah(n) {
+  return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
+}
+
+function fmtDate(raw) {
+  if (!raw) return '-';
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function terbilang(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  const ones = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh',
+    'sebelas', 'dua belas', 'tiga belas', 'empat belas', 'lima belas', 'enam belas', 'tujuh belas', 'delapan belas', 'sembilan belas'];
+  function words(num) {
+    if (num < 20) return ones[num];
+    if (num < 100) { const s = num % 10; return words(Math.floor(num / 10)) + ' puluh' + (s ? ' ' + words(s) : ''); }
+    if (num < 200) return 'seratus' + (num % 100 ? ' ' + words(num % 100) : '');
+    if (num < 1000) { const s = num % 100; return words(Math.floor(num / 100)) + ' ratus' + (s ? ' ' + words(s) : ''); }
+    if (num < 2000) return 'seribu' + (num % 1000 ? ' ' + words(num % 1000) : '');
+    if (num < 1000000) { const s = num % 1000; return words(Math.floor(num / 1000)) + ' ribu' + (s ? ' ' + words(s) : ''); }
+    if (num < 1000000000) { const s = num % 1000000; return words(Math.floor(num / 1000000)) + ' juta' + (s ? ' ' + words(s) : ''); }
+    const s = num % 1000000000; return words(Math.floor(num / 1000000000)) + ' miliar' + (s ? ' ' + words(s) : '');
+  }
+  if (n === 0) return 'nol rupiah';
+  return words(n).trim() + ' rupiah';
+}
+
+async function resolveApproverName(managementApprovalBy) {
+  if (!managementApprovalBy) return '-';
+  const raw = String(managementApprovalBy).trim();
+  if (/^\d+$/.test(raw)) {
+    try {
+      const { data } = await supabaseClient.from('karyawanTbl').select('Nama').eq('Id', raw).maybeSingle();
+      if (data && data.Nama) return data.Nama;
+    } catch (e) { /* ignore, fall back to raw id below */ }
+  }
+  return raw;
+}
+
+function renderBanner(type, title, desc) {
+  const icon = type === 'valid' ? '&#10003;' : (type === 'warning' ? '!' : '&times;');
+  return `
+    <div class="status-banner ${type}">
+      <div class="icon">${icon}</div>
+      <div>
+        <div class="title">${title}</div>
+        <div class="desc">${desc}</div>
+      </div>
+    </div>
+  `;
+}
+
+async function validate() {
+  const app = document.getElementById('app');
+  const params = new URLSearchParams(window.location.search);
+  const docParam = params.get('doc');
+  const totalParam = params.get('total');
+
+  if (!docParam) {
+    app.innerHTML = `<div class="rfq-card">${renderBanner('invalid', 'Link Tidak Lengkap', 'Parameter nomor dokumen tidak ditemukan di link ini.')}</div>`;
+    return;
+  }
+
+  const { data: po, error } = await supabaseClient
+    .from('purchaseOrder')
+    .select('*')
+    .eq('DocNumber', docParam)
+    .maybeSingle();
+
+  if (error || !po) {
+    app.innerHTML = `
+      <div class="rfq-card">
+        ${renderBanner('invalid', 'Dokumen Tidak Ditemukan', 'Nomor dokumen "' + docParam + '" tidak terdaftar dalam sistem. Dokumen ini mungkin bukan dokumen resmi.')}
+      </div>
+    `;
+    return;
+  }
+
+  const [{ data: rfqRow }, { data: vendorRow }, { data: items }] = await Promise.all([
+    supabaseClient.from('rfq').select('NoRFQ').eq('RFQID', po.RFQID).maybeSingle(),
+    supabaseClient.from('vendor').select('VendorName, Address, ContactNo').eq('VendorID', po.VendorID).maybeSingle(),
+    supabaseClient.from('purchaseOrderDetail').select('*').eq('POID', po.POID)
+  ]);
+
+  const approverName = await resolveApproverName(po.ManagementApprovalBy);
+
+  const realTotal = Math.round(Number(po.TotalAmount) || 0);
+  const claimedTotal = totalParam !== null ? Math.round(Number(totalParam) || 0) : null;
+  const totalMatches = claimedTotal === null || claimedTotal === realTotal;
+
+  let banner;
+  if (!totalMatches) {
+    banner = renderBanner('invalid', 'Total Tidak Cocok — Dokumen Dicurigai Telah Diubah',
+      `Total pada dokumen yang di-scan (${fmtRupiah(claimedTotal)}) tidak sama dengan total resmi di sistem (${fmtRupiah(realTotal)}).`);
+  } else if (po.Status === 'Rejected') {
+    banner = renderBanner('warning', 'Dokumen Ditolak', 'Dokumen ini pernah diajukan namun DITOLAK dan tidak berlaku sebagai perintah kerja resmi.');
+  } else if (po.Status !== 'Approved') {
+    banner = renderBanner('warning', 'Belum Disetujui Resmi', `Status dokumen saat ini: "${po.Status}". Dokumen ini belum berstatus Approved.`);
+  } else {
+    banner = renderBanner('valid', 'Dokumen Sah & Valid', 'Data pada dokumen ini cocok dengan catatan resmi di sistem SMMS BIMA.');
+  }
+
+  const docLabel = po.DocType === 'SO' ? 'Service Order' : 'Purchase Order';
+  const itemRows = (items || []).map((it, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${it.ItemDescription || '-'}</td>
+      <td>${it.Qty || '-'} ${it.Unit || ''}</td>
+      <td>${fmtRupiah(it.UnitPrice)}</td>
+      <td>${fmtRupiah(it.Subtotal)}</td>
+    </tr>
+  `).join('');
+
+  app.innerHTML = `
+    <div class="rfq-card">
+      ${banner}
+
+      <h2>${docLabel} - ${po.DocNumber}</h2>
+      <div class="meta">Referensi RFQ: ${rfqRow ? rfqRow.NoRFQ : '-'}</div>
+
+      <div class="summary">
+        <div class="summary-row"><span class="label">Vendor</span><span class="value">${vendorRow ? vendorRow.VendorName : '-'}</span></div>
+        <div class="summary-row"><span class="label">Alamat Vendor</span><span class="value">${vendorRow && vendorRow.Address ? vendorRow.Address : '-'}</span></div>
+        <div class="summary-row"><span class="label">Kontak Vendor</span><span class="value">${vendorRow && vendorRow.ContactNo ? vendorRow.ContactNo : '-'}</span></div>
+        <div class="summary-row"><span class="label">Titik Pengiriman</span><span class="value">${po.DeliveryPoint || '-'}</span></div>
+        <div class="summary-row"><span class="label">Status</span><span class="value">${po.Status || '-'}</span></div>
+        <div class="summary-row"><span class="label">Disetujui oleh</span><span class="value">${approverName}</span></div>
+        <div class="summary-row"><span class="label">Tanggal Disetujui</span><span class="value">${fmtDate(po.ManagementApprovalDate)}</span></div>
+      </div>
+
+      <div class="section-title">Rincian Item</div>
+      <table>
+        <thead>
+          <tr><th>No</th><th>Deskripsi Item</th><th>Qty</th><th>Harga Satuan</th><th>Subtotal</th></tr>
+        </thead>
+        <tbody>
+          ${itemRows || '<tr><td colspan="5" style="text-align:center; color:#999;">Tidak ada rincian item</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="summary">
+        <div class="summary-row total"><span class="label">TOTAL</span><span class="value">${fmtRupiah(realTotal)}</span></div>
+      </div>
+      <div class="terbilang">Terbilang: ${terbilang(realTotal)}</div>
+
+      <div class="footer-note">Halaman ini menampilkan data resmi langsung dari sistem SMMS BIMA. Jika ada perbedaan antara dokumen fisik/PDF dan halaman ini, anggap dokumen tersebut tidak sah dan segera hubungi PT. Bilal Mitra Aryatama.</div>
+    </div>
+  `;
+}
+
+validate();
+</script>
+
+</body>
+</html>
