@@ -554,17 +554,22 @@ async function getProjectPOIds(projCode) {
 async function showDispatchForm(projCode) {
   document.getElementById('dispatchCard').style.display = "block";
 
-  // isi dropdown tujuan site dari lokasiTbl
+  // isi dropdown tujuan site dari lokasiTbl (lewat RPC, karena select langsung ke lokasiTbl
+  // kena RLS dan balik kosong tanpa error)
   try {
-    const { data: lokasi, error } = await supabaseClient.from('lokasiTbl').select('Id, NamaLokasi').order('NamaLokasi');
-    if (error) throw error;
     const destSel = document.getElementById('destSiteSelect');
+    destSel.innerHTML = '<option value="">-- Pilih Site Tujuan --</option>';
+    const { data: lokasi, error } = await supabaseClient.rpc('list_lokasi');
+    if (error) throw error;
     (lokasi || []).forEach(l => {
       const opt = document.createElement('option');
-      opt.value = l.NamaLokasi;
-      opt.textContent = l.NamaLokasi;
+      opt.value = l.namalokasi;
+      opt.textContent = l.namalokasi;
       destSel.appendChild(opt);
     });
+    if (!lokasi || lokasi.length === 0) {
+      showBanner(resultBanner, "🔴 Daftar site kosong (lokasiTbl belum ada data).", "fail");
+    }
   } catch (e) {
     showBanner(resultBanner, "🔴 Gagal memuat daftar lokasi site: " + e.message, "fail");
   }
