@@ -20,100 +20,64 @@
   <div class="page-head">
     <span class="eyebrow">Material request</span>
     <h1>Ajukan permintaan material</h1>
-    <p class="sub">Pilih kelompok, cari item, lalu lengkapi jumlah dan kebutuhan. Permintaan dikirim ke HO untuk diproses.</p>
+    <p class="sub">Isi data umum sekali, lalu tambahkan item sebanyak yang dibutuhkan. Semua item dikirim jadi satu permintaan ke HO.</p>
   </div>
 
-  <form id="requestForm" class="card" autocomplete="off">
+  <form id="requestForm" autocomplete="off">
 
-    <div class="field-row">
-      <div class="field">
-        <label for="itemGroup">Kelompok item</label>
-        <select id="itemGroup">
-          <option value="" disabled selected>Pilih kelompok</option>
-          <option value="Material">Material</option>
-          <option value="Consumables">Consumables</option>
-          <option value="Tools">Tools</option>
-          <option value="HeavyEquipment">Heavy equipment</option>
-          <option value="ServiceOrder">Service</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="itemSearch">Item</label>
-        <div class="combobox">
-          <input type="text" id="itemSearch" placeholder="Pilih kelompok dulu" disabled autocomplete="off">
-          <input type="hidden" id="itemSelectedIndex">
-          <div id="itemResults" class="combobox-list" hidden></div>
+    <!-- Data umum (berlaku untuk semua item di bawah) -->
+    <div class="card">
+      <div class="card-title">Data Umum</div>
+
+      <div class="field-row two">
+        <div class="field">
+          <label for="projectId">Project ID</label>
+          <input type="text" id="projectId" required placeholder="cth. 101">
+        </div>
+        <div class="field">
+          <label for="woNo">Nomor WO</label>
+          <input type="text" id="woNo" required placeholder="cth. WO-2026-001">
         </div>
       </div>
-    </div>
 
-    <div class="field-row three">
       <div class="field">
-        <label for="itemCode">Item code</label>
-        <input type="text" id="itemCode" readonly placeholder="—">
+        <label for="purpose">Keperluan</label>
+        <input type="text" id="purpose" required placeholder="Untuk keperluan apa material ini dipakai">
       </div>
-      <div class="field">
-        <label for="unit">Satuan</label>
-        <input type="text" id="unit" readonly placeholder="—">
-      </div>
-      <div class="field">
-        <label for="qty">Jumlah</label>
-        <input type="number" id="qty" min="1" step="1" required placeholder="0">
-      </div>
-    </div>
 
-    <div class="field-row two" id="durationRow" hidden>
-      <div class="field">
-        <label for="duration">Durasi sewa</label>
-        <input type="number" id="duration" min="1" step="1" placeholder="0">
-      </div>
-      <div class="field">
-        <label for="durUnit">Satuan durasi</label>
-        <select id="durUnit">
-          <option value="Hari">Hari</option>
-          <option value="Minggu">Minggu</option>
-          <option value="Bulan">Bulan</option>
-        </select>
-      </div>
-    </div>
-
-    <hr class="divider">
-
-    <div class="field-row two">
-      <div class="field">
-        <label for="projectId">Project ID</label>
-        <input type="text" id="projectId" required placeholder="cth. 101">
-      </div>
-      <div class="field">
-        <label for="woNo">Nomor WO</label>
-        <input type="text" id="woNo" required placeholder="cth. WO-2026-001">
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="purpose">Keperluan</label>
-      <input type="text" id="purpose" required placeholder="Untuk keperluan apa material ini dipakai">
-    </div>
-
-    <div class="field-row two">
-      <div class="field">
-        <label for="refNo">Nomor referensi</label>
-        <input type="text" id="refNo" placeholder="cth. REF-001 (opsional)">
-      </div>
       <div class="field">
         <label for="expectedDate">Tanggal dibutuhkan</label>
         <input type="date" id="expectedDate" required>
       </div>
+
+      <p class="hint-note">No. Referensi akan dibuat otomatis oleh sistem saat permintaan dikirim.</p>
+    </div>
+
+    <!-- Detail item — bisa lebih dari 1 baris -->
+    <div class="card" style="margin-top:16px;">
+      <div class="card-title-row">
+        <span class="card-title">Detail Item</span>
+        <button type="button" id="btnAddItem" class="btn-add-row" title="Tambah item">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Tambah Item</span>
+        </button>
+      </div>
+
+      <div id="itemRowsBody"></div>
     </div>
 
     <div id="formMsg" class="form-msg" role="status" aria-live="polite"></div>
 
-    <button type="submit" id="submitBtn" class="btn-submit">Kirim permintaan</button>
+    <button type="submit" id="submitBtn" class="btn-submit">Kirim Semua Item Request</button>
   </form>
 
   <p class="footnote">Diajukan oleh <span id="requestByLabel">—</span></p>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="auth.js"></script>
 <script src="script.js"></script>

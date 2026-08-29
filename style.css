@@ -267,3 +267,75 @@ select:disabled {
 .menu-tile[hidden] {
   display: none;
 }
+
+/* ==== Request — form data umum + detail item berulang (continuous form) ==== */
+.card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.hint-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.btn-add-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--moss-bg);
+  color: var(--moss);
+  border: 1px solid #cfe0c8;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-add-row:hover { background: #dfeada; }
+
+.item-row {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px dashed var(--line);
+}
+.item-row:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+.item-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.item-row-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+.btn-remove-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: #fff;
+  color: var(--danger);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-remove-row:hover { background: #fbeceb; border-color: #e4b3ac; }
