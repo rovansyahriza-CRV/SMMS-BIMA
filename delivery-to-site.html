@@ -54,6 +54,11 @@
   input[readonly] { background:#f1efe7; color:var(--text-muted); }
   label.field-label { display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin:0 0 6px; }
   footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px; line-height:1.5; }
+  .pending-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; cursor:pointer; }
+  .pending-card:hover { border-color:var(--steel-light); }
+  .pending-card.selected { border-color:var(--accent); background:var(--danger-bg); }
+  .pending-card h4 { margin:0 0 6px; font-size:14px; color:var(--steel); }
+  .pending-card p { margin:2px 0; font-size:12px; color:var(--text-muted); }
 </style>
 </head>
 <body>
@@ -64,10 +69,8 @@
     <h1 class="title">Delivery to Site</h1>
   </div>
 
-  <div id="locBanner" class="banner-info">Mengunci lokasi GPS...</div>
-
-  <div id="entryCard" class="card" style="display:none;">
-    <p class="card-label" id="entryCardLabel">Verifikasi Pengirim</p>
+  <div id="entryCard" class="card">
+    <p class="card-label" id="entryCardLabel">Verifikasi Identitas</p>
     <button id="btnStartFaceFirst" class="btn-block btn-accent">📸 Scan Wajah</button>
     <button id="btnShowQrOption" class="btn-block btn-secondary">📷 Atau Scan QR Code</button>
   </div>
@@ -78,6 +81,14 @@
   </div>
 
   <div id="matchInfo" class="banner-ok"></div>
+
+  <div id="accessCard" class="card" style="display:none;">
+    <p class="card-label">Anda Terdaftar Sebagai (pilih salah satu)</p>
+    <div id="accessListWrap"></div>
+  </div>
+
+  <div id="locBanner" class="banner-info">Mengunci lokasi GPS...</div>
+
   <div id="resultBanner"></div>
 
   <div id="wrap">
@@ -92,23 +103,33 @@
   <button id="btnScanFace" class="btn-block btn-accent" style="display:none;">📸 Scan Wajah</button>
   <button id="btnSwitchFaceCam" class="btn-block btn-secondary" style="display:none;">🔄 Ganti Kamera</button>
 
-  <div id="deliveryCard" class="card" style="display:none;">
-    <p class="card-label">Form Delivery</p>
-
-    <label class="field-label">Tujuan Site (dari GPS)</label>
-    <input type="text" id="destSite" readonly style="margin-bottom:14px;">
+  <!-- ===== FORM PENGIRIM: pilih PO/SO + item yang mau dikirim ===== -->
+  <div id="dispatchCard" class="card" style="display:none;">
+    <p class="card-label">Form Kirim Barang</p>
 
     <label class="field-label">Pilih PO/SO</label>
-    <select id="selectPoDelivery" style="margin-bottom:14px;">
+    <select id="selectPoDispatch" style="margin-bottom:14px;">
       <option value="">-- Pilih PO/SO --</option>
     </select>
 
-    <div id="deliveryItemsWrap"></div>
+    <div id="dispatchItemsWrap"></div>
 
-    <label class="field-label" style="margin-top:14px;">Catatan (opsional)</label>
-    <textarea id="deliveryNotes" rows="2"></textarea>
+    <label class="field-label" style="margin-top:14px;">Tujuan Site</label>
+    <select id="destSiteSelect" style="margin-bottom:14px;">
+      <option value="">-- Pilih Site Tujuan --</option>
+    </select>
 
-    <button id="btnSubmitDelivery" class="btn-block btn-accent">Simpan Delivery</button>
+    <label class="field-label">Catatan (opsional)</label>
+    <textarea id="dispatchNotes" rows="2"></textarea>
+
+    <button id="btnSubmitDispatch" class="btn-block btn-accent">Kirim Sekarang</button>
+  </div>
+
+  <!-- ===== LIST PENERIMA: daftar kiriman yang menunggu dikonfirmasi ===== -->
+  <div id="pendingCard" class="card" style="display:none;">
+    <p class="card-label">Kiriman Menunggu Konfirmasi di <span id="pendingSiteLabel"></span></p>
+    <div id="pendingListWrap"></div>
+    <button id="btnConfirmReceive" class="btn-block btn-accent" style="display:none;">Konfirmasi Barang Diterima</button>
   </div>
 
   <button id="btnRetry" class="btn-block btn-secondary" style="display:none;">🔁 Ulangi</button>
@@ -123,20 +144,19 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const FACE_MATCH_THRESHOLD = 0.45;
 const AMBIGUITY_MARGIN = 0.12;
 
+let pageRole = "";      // "pengirim" | "penerima" -- ditentukan OTOMATIS dari PIC, bukan dipilih manual
+let projectCode = null; // kode project (angka) hasil parsing PIC, dipakai buat filter PO/SO & site
+let accessList = [];    // hasil parsing kolom "pic": [{role:'pengirim'|'penerima', project:101}, ...]
 let qrCodeId = "";
 let refDescriptor = null;
 let allFaceData = null;
-let matchMode = "1:1"; // "1:1" (QR dulu) atau "1:N" (wajah dulu, cari dari semua)
+let matchMode = "1:1";
 let matchedLocation = null;
-let currentFacingModeFace = "user"; // default kamera depan buat wajah sendiri
+let currentFacingModeFace = "user";
 
 let pendingKarId = null, pendingKarNama = "";
-
-// Verifikasi 2 orang per pengiriman: Pengirim dulu, baru Penerima -- masing-masing
-// pilih scan wajah ATAU scan QR sendiri, keduanya berlaku 1x untuk semua item.
-let verificationStage = "pengirim"; // "pengirim" -> "penerima" -> selesai
-let pengirimId = null, pengirimNama = "";
-let penerimaId = null, penerimaNama = "";
+let verifiedId = null, verifiedNama = "";
+let selectedSuratJalan = null; // dipakai di flow Penerima
 
 const locBanner = document.getElementById('locBanner');
 const resultBanner = document.getElementById('resultBanner');
@@ -158,38 +178,10 @@ function setStatus(text, kind) { statusEl.style.display = "block"; statusEl.clas
 function showRetry() { btnRetry.style.display = "block"; }
 btnRetry.onclick = () => location.reload();
 
-// ============ 1. GPS + cari lokasi terdekat (RPC find_nearest_location) ============
-function initGPS() {
-  if (!navigator.geolocation) {
-    showBanner(locBanner, "❌ Browser tidak mendukung GPS.", "fail");
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
-    try {
-      const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
-      if (error) throw error;
-      const loc = Array.isArray(data) ? data[0] : data;
-      if (!loc || !loc.isinsideradius) {
-        showBanner(locBanner, "🔴 Di luar area site terdaftar" + (loc ? " (" + loc.namalokasi + ")" : "") + ".", "fail");
-        showRetry();
-        return;
-      }
-      matchedLocation = loc;
-      showBanner(locBanner, `🟢 Lokasi: ${loc.namalokasi} (jarak ${Math.round(loc.distance)}m)`, "ok");
-      document.getElementById('entryCard').style.display = "block";
-    } catch (e) {
-      showBanner(locBanner, "🔴 Gagal cek lokasi: " + e.message, "fail");
-      showRetry();
-    }
-  }, (err) => {
-    showBanner(locBanner, "🔴 Gagal ambil GPS: " + err.message, "fail");
-    showRetry();
-  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
-}
-
-// ============ 2a. Entry: pilih Scan Wajah (1:N) atau Scan QR (1:1) ============
+// ============ 1. Entry: verifikasi identitas dulu (Scan Wajah 1:N atau Scan QR 1:1) ============
+// Role (Pengirim/Penerima) dan project-nya BELUM diketahui di sini -- baru ditentukan
+// otomatis setelah identitas terverifikasi, berdasarkan kolom "pic" orang itu (persis
+// kayak sidebar VS Code: kalau PIC gak cocok, gak ada tombol/akses yang muncul).
 document.getElementById('btnStartFaceFirst').onclick = async () => {
   document.getElementById('entryCard').style.display = "none";
   matchMode = "1:N";
@@ -211,16 +203,11 @@ async function loadFaceModels() {
   faceModelsLoaded = true;
 }
 
-// ============ 2b. Mode 1:N -- scan wajah dulu, sistem cari sendiri dari semua terdaftar ============
 async function startFaceOnlyCapture() {
   setStatus("Memuat model wajah...", "info");
   statusEl.style.display = "block";
-  try {
-    await loadFaceModels();
-  } catch (e) {
-    setStatus("❌ Gagal memuat model wajah: " + e.message, "fail");
-    showRetry();
-    return;
+  try { await loadFaceModels(); } catch (e) {
+    setStatus("❌ Gagal memuat model wajah: " + e.message, "fail"); showRetry(); return;
   }
 
   setStatus("Mengambil data wajah karyawan...", "info");
@@ -229,20 +216,14 @@ async function startFaceOnlyCapture() {
     if (error) throw error;
     allFaceData = data || [];
   } catch (e) {
-    setStatus("❌ Gagal ambil data wajah: " + e.message, "fail");
-    showRetry();
-    return;
+    setStatus("❌ Gagal ambil data wajah: " + e.message, "fail"); showRetry(); return;
   }
   if (!allFaceData || allFaceData.length === 0) {
-    setStatus("❌ Belum ada data wajah terdaftar. Hubungi admin.", "fail");
-    showRetry();
-    return;
+    setStatus("❌ Belum ada data wajah terdaftar. Hubungi admin.", "fail"); showRetry(); return;
   }
-
   await openFaceCameraAndPrompt();
 }
 
-// ============ 2c. Mode 1:1 -- scan QR dulu, ambil descriptor 1 orang ============
 document.getElementById('btnStartQrScan').onclick = async () => {
   document.getElementById('qrCard').style.display = "none";
   matchMode = "1:1";
@@ -292,12 +273,8 @@ async function scanQRLoop() {
 
 async function proceedWithQr() {
   setStatus("Memuat model wajah...", "info");
-  try {
-    await loadFaceModels();
-  } catch (e) {
-    setStatus("❌ Gagal memuat model wajah: " + e.message, "fail");
-    showRetry();
-    return;
+  try { await loadFaceModels(); } catch (e) {
+    setStatus("❌ Gagal memuat model wajah: " + e.message, "fail"); showRetry(); return;
   }
 
   setStatus("Mengambil data referensi wajah...", "info");
@@ -306,32 +283,22 @@ async function proceedWithQr() {
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     if (!row || !row.facecode) {
-      setStatus("❌ Wajah belum terdaftar untuk QR ini. Hubungi admin.", "fail");
-      showRetry();
-      return;
+      setStatus("❌ Wajah belum terdaftar untuk QR ini. Hubungi admin.", "fail"); showRetry(); return;
     }
     refDescriptor = row.facecode;
   } catch (e) {
-    setStatus("❌ Gagal ambil data wajah: " + e.message, "fail");
-    showRetry();
-    return;
+    setStatus("❌ Gagal ambil data wajah: " + e.message, "fail"); showRetry(); return;
   }
 
   try {
     const { data: kar, error: karErr } = await supabaseClient.rpc('get_karyawan_by_qrcode', { p_qrcode: qrCodeId });
     if (karErr) throw karErr;
     const karRow = Array.isArray(kar) ? kar[0] : kar;
-    if (!karRow) {
-      setStatus("❌ Karyawan tidak ditemukan untuk QR ini.", "fail");
-      showRetry();
-      return;
-    }
+    if (!karRow) { setStatus("❌ Karyawan tidak ditemukan untuk QR ini.", "fail"); showRetry(); return; }
     pendingKarId = karRow.id;
     pendingKarNama = karRow.nama;
   } catch (e) {
-    setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
-    showRetry();
-    return;
+    setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail"); showRetry(); return;
   }
 
   await openFaceCameraAndPrompt();
@@ -423,11 +390,7 @@ btnScanFace.onclick = async () => {
       const { data: kar, error: karErr } = await supabaseClient.rpc('get_karyawan_by_qrcode', { p_qrcode: qrCodeId });
       if (karErr) throw karErr;
       const karRow = Array.isArray(kar) ? kar[0] : kar;
-      if (!karRow) {
-        setStatus("❌ Karyawan tidak ditemukan.", "fail");
-        btnScanFace.disabled = false;
-        return;
-      }
+      if (!karRow) { setStatus("❌ Karyawan tidak ditemukan.", "fail"); btnScanFace.disabled = false; return; }
       pendingKarId = karRow.id;
       pendingKarNama = karRow.nama;
     } catch (e) {
@@ -440,7 +403,6 @@ btnScanFace.onclick = async () => {
     return;
   }
 
-  // ---- mode 1:1 (identitas sudah pasti dari QR) ----
   const distance = faceapi.euclideanDistance(detection.descriptor, refDescriptor);
   if (distance > FACE_MATCH_THRESHOLD) {
     setStatus("❌ Wajah tidak cocok (jarak: " + distance.toFixed(3) + "). Coba lagi.", "fail");
@@ -459,46 +421,176 @@ function finalizeVerification() {
   if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
   video.srcObject = null;
   wrap.style.display = "none";
+  statusEl.style.display = "none";
+
+  verifiedId = pendingKarId;
+  verifiedNama = pendingKarNama;
 
   matchInfoEl.style.display = "block";
+  matchInfoEl.innerHTML = `✅ Terverifikasi: ${verifiedNama}`;
 
-  if (verificationStage === "pengirim") {
-    pengirimId = pendingKarId;
-    pengirimNama = pendingKarNama;
-    matchInfoEl.innerHTML = `✅ Pengirim: ${pengirimNama}`;
-
-    // lanjut ke tahap scan Penerima -- reset state, tampilkan lagi kartu pilihan
-    verificationStage = "penerima";
-    qrCodeId = ""; refDescriptor = null; allFaceData = null;
-    pendingKarId = null; pendingKarNama = "";
-    statusEl.style.display = "none";
-    document.getElementById('entryCardLabel').textContent = "Verifikasi Penerima";
-    document.getElementById('entryCard').style.display = "block";
-    return;
-  }
-
-  penerimaId = pendingKarId;
-  penerimaNama = pendingKarNama;
-  matchInfoEl.innerHTML = `✅ Pengirim: ${pengirimNama}<br>✅ Penerima: ${penerimaNama}`;
-  showDeliveryForm();
+  resolveAccessAndProceed();
 }
 
-// ============ 5. Form delivery ============
-async function showDeliveryForm() {
-  statusEl.style.display = "none";
-  document.getElementById('destSite').value = matchedLocation ? matchedLocation.namalokasi : "";
-  document.getElementById('deliveryCard').style.display = "block";
+// ============ 5. Cek Author (dari paswordTbl, lewat RPC) buat nentuin role + project OTOMATIS ============
+async function resolveAccessAndProceed() {
+  setStatus("Mengecek hak akses...", "info");
+  statusEl.style.display = "block";
+  try {
+    const { data: authorStr, error } = await supabaseClient.rpc('get_author_by_karyawan_id', { p_id: verifiedId });
+    if (error) throw error;
 
-  const selectEl = document.getElementById('selectPoDelivery');
+    accessList = parsePicAccess(authorStr);
+    statusEl.style.display = "none";
+
+    if (accessList.length === 0) {
+      showBanner(resultBanner, `🔴 ${verifiedNama} tidak terdaftar sebagai Pengirim/Penerima barang. Hubungi admin untuk mengatur akses (kolom "Author").`, "fail");
+      showRetry();
+      return;
+    }
+
+    if (accessList.length === 1) {
+      proceedWithAccess(accessList[0]);
+      return;
+    }
+
+    // Lebih dari 1 akses (misal Pengirim project 101 & 102) -- biar user pilih mau jalan sebagai yang mana
+    const accessCard = document.getElementById('accessCard');
+    const listWrap = document.getElementById('accessListWrap');
+    listWrap.innerHTML = '';
+    accessList.forEach(acc => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-block ' + (acc.role === 'pengirim' ? 'btn-accent' : 'btn-primary');
+      btn.textContent = (acc.role === 'pengirim' ? '🚚 Pengirim' : '📦 Penerima') + ' — Project ' + acc.project;
+      btn.onclick = () => { accessCard.style.display = "none"; proceedWithAccess(acc); };
+      listWrap.appendChild(btn);
+    });
+    accessCard.style.display = "block";
+  } catch (e) {
+    statusEl.style.display = "none";
+    showBanner(resultBanner, "🔴 Gagal mengecek hak akses: " + e.message, "fail");
+    showRetry();
+  }
+}
+
+// Parsing kolom "Author", contoh isi: "Approval Request 101, Pengirim barang 101"
+// -- bagian lain (tag approval desktop) diabaikan, cuma yang match pola "Pengirim/Penerima barang <kode>" yang dipakai.
+function parsePicAccess(authorStr) {
+  if (!authorStr) return [];
+  const parts = String(authorStr).split(',').map(s => s.trim()).filter(Boolean);
+  const result = [];
+  parts.forEach(p => {
+    const m = p.match(/^(pengirim|penerima)\s+barang\s+(\d+)$/i);
+    if (m) result.push({ role: m[1].toLowerCase(), project: Number(m[2]) });
+  });
+  return result;
+}
+
+function proceedWithAccess(acc) {
+  pageRole = acc.role;
+  projectCode = acc.project;
+  matchInfoEl.innerHTML = pageRole === "pengirim"
+    ? `✅ Pengirim: ${verifiedNama} (Project ${projectCode})`
+    : `✅ Penerima: ${verifiedNama} (Project ${projectCode})`;
+
+  if (pageRole === "pengirim") {
+    showDispatchForm(projectCode);
+  } else {
+    initGPS(); // wajib GPS buat penerima -- baru lanjut ke daftar kiriman kalau lokasi valid
+  }
+}
+
+// ============ GPS + cari lokasi terdekat (khusus alur Penerima, jalan SETELAH role diketahui) ============
+function initGPS() {
+  if (!navigator.geolocation) {
+    showBanner(locBanner, "❌ Browser tidak mendukung GPS.", "fail");
+    return;
+  }
+  showBanner(locBanner, "🔄 Mengunci lokasi GPS...", "info");
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
+    try {
+      const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
+      if (error) throw error;
+      const loc = Array.isArray(data) ? data[0] : data;
+      if (!loc || !loc.isinsideradius) {
+        showBanner(locBanner, "🔴 Di luar area site terdaftar" + (loc ? " (" + loc.namalokasi + ")" : "") + ".", "fail");
+        showRetry();
+        return;
+      }
+      matchedLocation = loc;
+      showBanner(locBanner, `🟢 Lokasi: ${loc.namalokasi} (jarak ${Math.round(loc.distance)}m)`, "ok");
+      showPendingDeliveries(projectCode);
+    } catch (e) {
+      showBanner(locBanner, "🔴 Gagal cek lokasi: " + e.message, "fail");
+      showRetry();
+    }
+  }, (err) => {
+    showBanner(locBanner, "🔴 Gagal ambil GPS: " + err.message, "fail");
+    showRetry();
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
+// ============ helper: daftar POID yang termasuk project tertentu ============
+// request (PROJECTID) -> rfqDetail (RequestID -> RFQID) -> purchaseOrder (RFQID)
+async function getProjectPOIds(projCode) {
+  const { data: reqRows, error: reqErr } = await supabaseClient.from('request').select('ID').eq('PROJECTID', projCode);
+  if (reqErr) throw reqErr;
+  const requestIds = (reqRows || []).map(r => r.ID);
+  if (requestIds.length === 0) return [];
+
+  const { data: rfqDetailRows, error: rfqDetErr } = await supabaseClient.from('rfqDetail').select('RFQID').in('RequestID', requestIds);
+  if (rfqDetErr) throw rfqDetErr;
+  const rfqIds = [...new Set((rfqDetailRows || []).map(r => r.RFQID).filter(Boolean))];
+  if (rfqIds.length === 0) return [];
+
+  const { data: poRows, error: poErr } = await supabaseClient.from('purchaseOrder').select('POID').in('RFQID', rfqIds);
+  if (poErr) throw poErr;
+  return (poRows || []).map(p => p.POID);
+}
+
+// ============ 5a. FORM PENGIRIM -- pilih PO/SO (dibatasi ke project ini), item, tujuan site ============
+async function showDispatchForm(projCode) {
+  document.getElementById('dispatchCard').style.display = "block";
+
+  // isi dropdown tujuan site dari lokasiTbl
+  try {
+    const { data: lokasi, error } = await supabaseClient.from('lokasiTbl').select('Id, NamaLokasi').order('NamaLokasi');
+    if (error) throw error;
+    const destSel = document.getElementById('destSiteSelect');
+    (lokasi || []).forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.NamaLokasi;
+      opt.textContent = l.NamaLokasi;
+      destSel.appendChild(opt);
+    });
+  } catch (e) {
+    showBanner(resultBanner, "🔴 Gagal memuat daftar lokasi site: " + e.message, "fail");
+  }
+
+  const selectEl = document.getElementById('selectPoDispatch');
   selectEl.innerHTML = '<option value="">-- Pilih PO/SO --</option>';
 
   try {
+    const projectPoIds = await getProjectPOIds(projCode);
+    if (projectPoIds.length === 0) {
+      selectEl.innerHTML = '<option value="">-- Tidak ada PO/SO untuk project ini --</option>';
+      return;
+    }
+
     const { data: pos, error } = await supabaseClient
       .from('purchaseOrder')
       .select('POID, DocNumber, DocType, VendorID')
       .eq('Status', 'Approved')
+      .in('POID', projectPoIds)
       .order('CreatedDate', { ascending: false });
     if (error) throw error;
+
+    if (!pos || pos.length === 0) {
+      selectEl.innerHTML = '<option value="">-- Tidak ada PO/SO Approved untuk project ini --</option>';
+      return;
+    }
 
     const vendorIds = [...new Set((pos || []).map(p => p.VendorID).filter(Boolean))];
     let vendorMap = {};
@@ -517,9 +609,9 @@ async function showDeliveryForm() {
   }
 }
 
-document.getElementById('selectPoDelivery').addEventListener('change', async (e) => {
+document.getElementById('selectPoDispatch').addEventListener('change', async (e) => {
   const poId = e.target.value;
-  const wrapEl = document.getElementById('deliveryItemsWrap');
+  const wrapEl = document.getElementById('dispatchItemsWrap');
   if (!poId) { wrapEl.innerHTML = ''; return; }
   wrapEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat item...</p>';
 
@@ -529,21 +621,21 @@ document.getElementById('selectPoDelivery').addEventListener('change', async (e)
     if (detErr) throw detErr;
 
     const { data: received } = await supabaseClient.from('vendorReceiving').select('PODetailID, QtyReceived').eq('POID', poId);
-    const { data: delivered } = await supabaseClient.from('delivery').select('PODetailID, QtyDelivered').eq('POID', poId);
+    const { data: alreadyDispatched } = await supabaseClient.from('delivery').select('PODetailID, QtyDelivered').eq('POID', poId);
 
-    const receivedMap = {}, deliveredMap = {};
+    const receivedMap = {}, dispatchedMap = {};
     (received || []).forEach(r => receivedMap[r.PODetailID] = (receivedMap[r.PODetailID] || 0) + Number(r.QtyReceived || 0));
-    (delivered || []).forEach(d => deliveredMap[d.PODetailID] = (deliveredMap[d.PODetailID] || 0) + Number(d.QtyDelivered || 0));
+    (alreadyDispatched || []).forEach(d => dispatchedMap[d.PODetailID] = (dispatchedMap[d.PODetailID] || 0) + Number(d.QtyDelivered || 0));
 
     const itemsReady = (details || []).map(d => {
       const receivedQty = receivedMap[d.PODetailID] || 0;
-      const deliveredQty = deliveredMap[d.PODetailID] || 0;
-      const sisa = receivedQty - deliveredQty;
+      const dispatchedQty = dispatchedMap[d.PODetailID] || 0;
+      const sisa = receivedQty - dispatchedQty;
       return { ...d, sisa };
     }).filter(d => d.sisa > 0);
 
     if (itemsReady.length === 0) {
-      wrapEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang siap dikirim (belum diterima dari vendor, atau sudah terkirim semua).</p>';
+      wrapEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang siap dikirim (belum diterima dari vendor, atau sudah dikirim semua).</p>';
       return;
     }
 
@@ -553,13 +645,13 @@ document.getElementById('selectPoDelivery').addEventListener('change', async (e)
         <tr data-podetailid="${d.PODetailID}" data-sisa="${d.sisa}">
           <td>${d.ItemDescription}</td>
           <td style="text-align:center;">${d.sisa} ${d.Unit || ''}</td>
-          <td><input type="number" class="input-qty-deliver" min="0" max="${d.sisa}" step="1" placeholder="0"></td>
+          <td><input type="number" class="input-qty-dispatch" min="0" max="${d.sisa}" step="1" placeholder="0"></td>
         </tr>`;
     });
     wrapEl.innerHTML = `
       <table class="item-table">
         <thead><tr><th>Item</th><th>Siap Kirim</th><th>Qty Kirim</th></tr></thead>
-        <tbody id="deliveryItemsBody">${rowsHtml}</tbody>
+        <tbody id="dispatchItemsBody">${rowsHtml}</tbody>
       </table>`;
   } catch (e) {
     wrapEl.innerHTML = '';
@@ -567,18 +659,20 @@ document.getElementById('selectPoDelivery').addEventListener('change', async (e)
   }
 });
 
-document.getElementById('btnSubmitDelivery').onclick = async () => {
-  const poId = document.getElementById('selectPoDelivery').value;
+document.getElementById('btnSubmitDispatch').onclick = async () => {
+  const poId = document.getElementById('selectPoDispatch').value;
   if (!poId) { showBanner(resultBanner, "🔴 Pilih PO/SO dulu.", "fail"); return; }
+  const destSite = document.getElementById('destSiteSelect').value;
+  if (!destSite) { showBanner(resultBanner, "🔴 Pilih tujuan site dulu.", "fail"); return; }
 
-  const rows = document.querySelectorAll('#deliveryItemsBody tr');
-  const notes = document.getElementById('deliveryNotes').value || null;
+  const rows = document.querySelectorAll('#dispatchItemsBody tr');
+  const notes = document.getElementById('dispatchNotes').value || null;
   const itemsToSubmit = [];
 
   for (const tr of rows) {
     const podetailId = Number(tr.dataset.podetailid);
     const sisa = Number(tr.dataset.sisa);
-    const qty = Number(tr.querySelector('.input-qty-deliver').value);
+    const qty = Number(tr.querySelector('.input-qty-dispatch').value);
     if (qty && qty > 0) {
       if (qty > sisa) {
         showBanner(resultBanner, `🔴 Qty kirim tidak boleh lebih dari sisa (${sisa}).`, "fail");
@@ -593,9 +687,8 @@ document.getElementById('btnSubmitDelivery').onclick = async () => {
     return;
   }
 
-  document.getElementById('btnSubmitDelivery').disabled = true;
+  document.getElementById('btnSubmitDispatch').disabled = true;
   try {
-    // 1 No. Surat Jalan buat seluruh item yang dikirim di submission ini
     const { data: docData, error: docError } = await supabaseClient.rpc('generate_surat_jalan_no');
     if (docError) throw docError;
     const suratJalanNo = docData;
@@ -604,26 +697,129 @@ document.getElementById('btnSubmitDelivery').onclick = async () => {
       POID: Number(poId),
       PODetailID: it.podetailId,
       QtyDelivered: it.qty,
-      PengirimBy: pengirimId,
-      DeliveredBy: penerimaId,
-      DestinationSite: matchedLocation ? matchedLocation.namalokasi : null,
+      PengirimBy: verifiedId,
+      DeliveredBy: null,
+      DestinationSite: destSite,
       SuratJalanNo: suratJalanNo,
       Notes: notes
     }));
 
     const { error } = await supabaseClient.from('delivery').insert(payload);
     if (error) throw error;
-    document.getElementById('deliveryCard').style.display = "none";
-    showBanner(resultBanner, `✅ Delivery berhasil disimpan (${payload.length} item). No. Surat Jalan: <strong>${suratJalanNo}</strong>.<br>Pengirim: ${pengirimNama} · Penerima: ${penerimaNama}.`, "ok");
+    document.getElementById('dispatchCard').style.display = "none";
+    showBanner(resultBanner, `✅ Pengiriman berhasil disimpan (${payload.length} item) ke ${destSite}.<br>No. Surat Jalan: <strong>${suratJalanNo}</strong> — simpan nomor ini, penerima akan pakai nomor ini di site.<br>Pengirim: ${verifiedNama}.`, "ok");
   } catch (e) {
-    showBanner(resultBanner, "🔴 Gagal menyimpan delivery: " + e.message, "fail");
+    showBanner(resultBanner, "🔴 Gagal menyimpan pengiriman: " + e.message, "fail");
   } finally {
-    document.getElementById('btnSubmitDelivery').disabled = false;
+    document.getElementById('btnSubmitDispatch').disabled = false;
   }
 };
 
-// ============ START ============
-initGPS();
+// ============ 5b. LIST PENERIMA -- kiriman menunggu konfirmasi di site ini, dibatasi ke project ini ============
+async function showPendingDeliveries(projCode) {
+  const pendingCard = document.getElementById('pendingCard');
+  const listWrap = document.getElementById('pendingListWrap');
+  const btnConfirm = document.getElementById('btnConfirmReceive');
+  document.getElementById('pendingSiteLabel').textContent = matchedLocation ? matchedLocation.namalokasi : "-";
+  pendingCard.style.display = "block";
+  listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat daftar kiriman...</p>';
+
+  try {
+    const projectPoIds = await getProjectPOIds(projCode);
+    if (projectPoIds.length === 0) {
+      listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada PO/SO untuk project ini.</p>';
+      return;
+    }
+
+    const { data: rows, error } = await supabaseClient
+      .from('delivery')
+      .select('DeliveryID, POID, PODetailID, QtyDelivered, SuratJalanNo, PengirimBy, DeliveryDate, Notes')
+      .is('DeliveredBy', null)
+      .eq('DestinationSite', matchedLocation ? matchedLocation.namalokasi : '__none__')
+      .in('POID', projectPoIds);
+    if (error) throw error;
+
+    if (!rows || rows.length === 0) {
+      listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada kiriman yang menunggu konfirmasi di site ini.</p>';
+      return;
+    }
+
+    // lengkapi deskripsi item + nama pengirim
+    const podetailIds = [...new Set(rows.map(r => r.PODetailID))];
+    const { data: details } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit').in('PODetailID', podetailIds);
+    const detailMap = {};
+    (details || []).forEach(d => detailMap[d.PODetailID] = d);
+
+    const pengirimIds = [...new Set(rows.map(r => r.PengirimBy).filter(Boolean))];
+    const pengirimNamaMap = {};
+    for (const id of pengirimIds) {
+      try {
+        const { data: nama } = await supabaseClient.rpc('get_karyawan_name', { p_id: id });
+        pengirimNamaMap[id] = nama || ('#' + id);
+      } catch (e) { pengirimNamaMap[id] = '#' + id; }
+    }
+
+    // kelompokkan per No. Surat Jalan
+    const groups = {};
+    rows.forEach(r => {
+      const key = r.SuratJalanNo || ('DeliveryID-' + r.DeliveryID);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+
+    listWrap.innerHTML = '';
+    Object.keys(groups).forEach(suratJalanNo => {
+      const items = groups[suratJalanNo];
+      const first = items[0];
+      const itemLines = items.map(it => {
+        const d = detailMap[it.PODetailID] || {};
+        return `${d.ItemDescription || 'Item #' + it.PODetailID} — ${it.QtyDelivered} ${d.Unit || ''}`;
+      }).join('<br>');
+
+      const card = document.createElement('div');
+      card.className = 'pending-card';
+      card.dataset.suratJalan = suratJalanNo;
+      card.innerHTML = `
+        <h4>No. Surat Jalan: ${suratJalanNo}</h4>
+        <p>Pengirim: ${pengirimNamaMap[first.PengirimBy] || '-'}</p>
+        <p>Tanggal Kirim: ${first.DeliveryDate ? new Date(first.DeliveryDate).toLocaleString('id-ID') : '-'}</p>
+        <p style="margin-top:8px; color:var(--text);">${itemLines}</p>
+      `;
+      card.onclick = () => {
+        document.querySelectorAll('.pending-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedSuratJalan = suratJalanNo;
+        btnConfirm.style.display = "block";
+      };
+      listWrap.appendChild(card);
+    });
+  } catch (e) {
+    listWrap.innerHTML = '';
+    showBanner(resultBanner, "🔴 Gagal memuat daftar kiriman: " + e.message, "fail");
+  }
+}
+
+document.getElementById('btnConfirmReceive').onclick = async () => {
+  if (!selectedSuratJalan) { showBanner(resultBanner, "🔴 Pilih salah satu kiriman dulu.", "fail"); return; }
+
+  const btn = document.getElementById('btnConfirmReceive');
+  btn.disabled = true;
+  try {
+    const { error } = await supabaseClient
+      .from('delivery')
+      .update({ DeliveredBy: verifiedId, ReceivedDate: new Date().toISOString() })
+      .eq('SuratJalanNo', selectedSuratJalan)
+      .is('DeliveredBy', null);
+    if (error) throw error;
+
+    document.getElementById('pendingCard').style.display = "none";
+    showBanner(resultBanner, `✅ Kiriman No. Surat Jalan <strong>${selectedSuratJalan}</strong> berhasil dikonfirmasi diterima oleh ${verifiedNama}.`, "ok");
+  } catch (e) {
+    showBanner(resultBanner, "🔴 Gagal konfirmasi penerimaan: " + e.message, "fail");
+  } finally {
+    btn.disabled = false;
+  }
+};
 </script>
 </body>
 </html>
