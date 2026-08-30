@@ -7,6 +7,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="driveBridge.js"></script>
+<script src="reportPdf.js"></script>
 <style>
   :root {
     --bg:#ECEEF1; --surface:#FFFFFF; --surface-2:#F5F6F8;
@@ -140,6 +144,9 @@
 const SUPABASE_URL = "https://nhmpwjriextmbotmvvbu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Drive File Bridge -- lihat drive-bridge-appsscript.gs & driveBridge.js. Isi setelah deploy.
+const DRIVE_BRIDGE_URL = "PASTE_URL_WEB_APP_DISINI";
+const DRIVE_BRIDGE_TOKEN = "PASTE_TOKEN_DISINI";
 const FACE_MATCH_THRESHOLD = 0.45;
 const AMBIGUITY_MARGIN = 0.12;
 
@@ -151,6 +158,7 @@ let refDescriptor = null;
 let allFaceData = null;
 let matchMode = "1:1";
 let matchedLocation = null;
+let matchedLat = null, matchedLng = null; // koordinat GPS mentah, disimpan buat report
 let currentFacingModeFace = "user";
 
 let pendingKarId = null, pendingKarNama = "";
@@ -471,6 +479,26 @@ async function resolveAccessAndProceed() {
   }
 }
 
+// Kode "GROUP-ID" buat identifikasi item di report PDF (sama persis pola yang dipakai di
+// end-user-receiving.html / monitoring.html).
+function groupPrefix(group) {
+  if (!group) return 'ITEM';
+  const known = {
+    consumables: 'CONS', consumable: 'CONS',
+    material: 'MAT', materials: 'MAT',
+    tools: 'TOOL', tool: 'TOOL',
+    heavyequipment: 'HE',
+    serviceorder: 'SO'
+  };
+  const key = String(group).toLowerCase().replace(/\s+/g, '');
+  if (known[key]) return known[key];
+  const letters = String(group).replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase();
+  return letters || 'ITEM';
+}
+function itemCode(m) {
+  return m.ItemID != null ? `${groupPrefix(m.ItemGroup)}-${m.ItemID}` : null;
+}
+
 // Parsing kolom "Author", contoh isi: "Approval Request 101, Pengirim barang 101"
 // -- bagian lain (tag approval desktop) diabaikan, cuma yang match pola "Pengirim/Penerima barang <kode>" yang dipakai.
 function parsePicAccess(authorStr) {
@@ -507,6 +535,7 @@ function initGPS() {
   showBanner(locBanner, "🔄 Mengunci lokasi GPS...", "info");
   navigator.geolocation.getCurrentPosition(async (pos) => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    matchedLat = lat; matchedLng = lng;
     showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
     try {
       const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
@@ -782,9 +811,48 @@ async function showPendingDeliveries(projCode) {
 
     // lengkapi deskripsi item + nama pengirim
     const podetailIds = [...new Set(rowsWithSisa.map(r => r.PODetailID))];
-    const { data: details } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit').in('PODetailID', podetailIds);
+    const { data: details } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit, RFQDetailID, ItemGroup, ItemID').in('PODetailID', podetailIds);
     const detailMap = {};
     (details || []).forEach(d => detailMap[d.PODetailID] = d);
+
+    // No. Request + Vendor per baris -- dipakai buat report PDF (satu Surat Jalan bisa
+    // cover beberapa No.Request/vendor berbeda)
+    const rfqDetailIds = [...new Set((details || []).map(d => d.RFQDetailID).filter(Boolean))];
+    const { data: rfqDetailRows2 } = rfqDetailIds.length
+      ? await supabaseClient.from('rfqDetail').select('RFQDetailID, RequestID').in('RFQDetailID', rfqDetailIds)
+      : { data: [] };
+    const requestIdByRfqDetail = {};
+    (rfqDetailRows2 || []).forEach(r => requestIdByRfqDetail[r.RFQDetailID] = r.RequestID);
+    const requestIds2 = [...new Set(Object.values(requestIdByRfqDetail))];
+    const { data: requestRows2 } = requestIds2.length
+      ? await supabaseClient.from('request').select('ID, RefNo').in('ID', requestIds2)
+      : { data: [] };
+    const refNoByRequestId = {};
+    (requestRows2 || []).forEach(r => refNoByRequestId[r.ID] = r.RefNo);
+
+    const poIdsForVendor = [...new Set(rowsWithSisa.map(r => r.POID))];
+    const { data: poRows2 } = poIdsForVendor.length
+      ? await supabaseClient.from('purchaseOrder').select('POID, VendorID').in('POID', poIdsForVendor)
+      : { data: [] };
+    const vendorIdByPoId = {};
+    (poRows2 || []).forEach(p => vendorIdByPoId[p.POID] = p.VendorID);
+    const vendorIds2 = [...new Set(Object.values(vendorIdByPoId).filter(Boolean))];
+    const { data: vendorRows2 } = vendorIds2.length
+      ? await supabaseClient.from('vendor').select('VendorID, VendorName').in('VendorID', vendorIds2)
+      : { data: [] };
+    const vendorNameById = {};
+    (vendorRows2 || []).forEach(v => vendorNameById[v.VendorID] = v.VendorName);
+
+    function refNoForPODetail(podetailId) {
+      const d = detailMap[podetailId];
+      if (!d || !d.RFQDetailID) return null;
+      const reqId = requestIdByRfqDetail[d.RFQDetailID];
+      return reqId ? (refNoByRequestId[reqId] || null) : null;
+    }
+    function vendorNameForPOID(poId) {
+      const vid = vendorIdByPoId[poId];
+      return vid ? (vendorNameById[vid] || null) : null;
+    }
 
     const pengirimIds = [...new Set(rowsWithSisa.map(r => r.PengirimBy).filter(Boolean))];
     const pengirimNamaMap = {};
@@ -812,7 +880,7 @@ async function showPendingDeliveries(projCode) {
       items.forEach(it => {
         const d = detailMap[it.PODetailID] || {};
         itemRowsHtml += `
-          <tr data-deliveryid="${it.DeliveryID}" data-sisa="${it.sisa}">
+          <tr data-deliveryid="${it.DeliveryID}" data-sisa="${it.sisa}" data-podetailid="${it.PODetailID}" data-poid="${it.POID}">
             <td>${d.ItemDescription || 'Item #' + it.PODetailID}</td>
             <td style="text-align:center;">${it.sisa} ${d.Unit || ''}</td>
             <td>
@@ -836,6 +904,8 @@ async function showPendingDeliveries(projCode) {
             <thead><tr><th>Item</th><th>Sisa</th><th>Qty Diterima</th></tr></thead>
             <tbody>${itemRowsHtml}</tbody>
           </table>
+          <label class="field-label" style="margin-top:12px;">Foto barang saat diterima (opsional)</label>
+          <input type="file" class="site-receive-photo" accept="image/*" capture="environment">
           <label class="field-label" style="margin-top:12px;">Catatan (opsional)</label>
           <textarea class="site-receive-notes" rows="2"></textarea>
           <button class="btn-block btn-accent btn-submit-site-receive" style="margin-top:12px;">Simpan Penerimaan</button>
@@ -868,6 +938,7 @@ async function showPendingDeliveries(projCode) {
       card.querySelector('.btn-submit-site-receive').onclick = async (e) => {
         const btn = e.target;
         btn.disabled = true;
+        btn.textContent = "Menyimpan...";
         try {
           const notes = card.querySelector('.site-receive-notes').value || null;
           const payload = [];
@@ -880,8 +951,35 @@ async function showPendingDeliveries(projCode) {
               payload.push({ DeliveryID: deliveryId, QtyReceived: qty, ReceivedBy: verifiedId, Notes: notes });
             }
           });
-          if (payload.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang diterima.", "fail"); btn.disabled = false; return; }
+          if (payload.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang diterima.", "fail"); btn.disabled = false; btn.textContent = "Simpan Penerimaan"; return; }
 
+          // No Transaksi -- satu nomor buat seluruh baris dalam transaksi (1x scan/submit) ini
+          const { data: noTrx, error: noTrxErr } = await supabaseClient.rpc('generate_no_transaksi_sr');
+          if (noTrxErr) throw noTrxErr;
+
+          // Foto opsional -- kalau diisi, dikompres sekali (dipakai buat upload Drive & tempel ke PDF)
+          const photoFile = card.querySelector('.site-receive-photo').files[0];
+          let photoURL = null, photoFileID = null, photoDataUrl = null;
+          if (photoFile) {
+            btn.textContent = "Mengompres foto...";
+            const { compressedBlob, dataUrl } = await compressImageForReport(photoFile);
+            photoDataUrl = dataUrl;
+            btn.textContent = "Mengupload foto...";
+            const uploaded = await uploadToDrive("photos", `SR_${noTrx.replace(/\//g, '-')}.jpg`, "image/jpeg", compressedBlob);
+            photoURL = uploaded.directUrl;
+            photoFileID = uploaded.fileId;
+          }
+
+          payload.forEach(p => {
+            p.NoTransaksi = noTrx;
+            p.PhotoURL = photoURL;
+            p.PhotoFileID = photoFileID;
+            p.LokasiNama = matchedLocation ? matchedLocation.namalokasi : null;
+            p.Latitude = matchedLat;
+            p.Longitude = matchedLng;
+          });
+
+          btn.textContent = "Menyimpan...";
           const { error: insErr } = await supabaseClient.from('siteReceiving').insert(payload);
           if (insErr) throw insErr;
 
@@ -895,10 +993,51 @@ async function showPendingDeliveries(projCode) {
           }
 
           showBanner(resultBanner, `✅ Penerimaan barang No. Surat Jalan <strong>${suratJalanNo}</strong> berhasil disimpan oleh ${verifiedNama}.`, "ok");
+
+          // Generate & upload report PDF -- dibungkus try/catch sendiri: kalau ini gagal,
+          // penerimaan barangnya TETAP TERSIMPAN (udah di-insert di atas), cuma reportnya
+          // aja yang gak kebuat.
+          try {
+            btn.textContent = "Membuat report PDF...";
+            const items = payload.map(p => {
+              const tr = card.querySelector(`tr[data-deliveryid="${p.DeliveryID}"]`);
+              const podetailId = tr ? Number(tr.dataset.podetailid) : null;
+              const d = detailMap[podetailId] || {};
+              const poId = tr ? Number(tr.dataset.poid) : null;
+              return {
+                noRequest: refNoForPODetail(podetailId) || '-',
+                kode: itemCode(d) || (d.ItemGroup || ''),
+                desk: d.ItemDescription || ('Item #' + podetailId),
+                vendor: vendorNameForPOID(poId) || '-',
+                qty: p.QtyReceived,
+                unit: d.Unit || '',
+              };
+            });
+            const pdfDoc = await generateSiteReceivingReportPdf({
+              noTransaksi: noTrx,
+              suratJalanNo,
+              tanggalTerima: new Date().toLocaleString('id-ID'),
+              tujuanSite: matchedLocation ? matchedLocation.namalokasi : '-',
+              diterimaOleh: verifiedNama,
+              diterimaOlehSub: 'Site: ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
+              diterimaOlehQr: `QrCodeID=${qrCodeId}|NoTransaksi=${noTrx}`,
+              lokasiNama: matchedLocation ? matchedLocation.namalokasi : null,
+              items,
+              photoDataUrl,
+            });
+            const pdfBlob = reportPdfToBlob(pdfDoc);
+            const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `SR_${noTrx.replace(/\//g, '-')}.pdf`);
+            await supabaseClient.from('siteReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+          } catch (reportErr) {
+            console.warn('Gagal membuat/upload report PDF:', reportErr);
+            showBanner(resultBanner, `✅ Penerimaan tersimpan, tapi report PDF gagal dibuat: ${reportErr.message}`, "ok");
+          }
+
           showPendingDeliveries(projCode);
         } catch (err) {
           showBanner(resultBanner, "🔴 Gagal menyimpan penerimaan: " + err.message, "fail");
           btn.disabled = false;
+          btn.textContent = "Simpan Penerimaan";
         }
       };
 
