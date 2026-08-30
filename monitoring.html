@@ -282,24 +282,32 @@ async function loadMonitoring() {
       const poDocs = [...new Set(pods.map(p => p.POID))].map(poid => poMap[poid]).filter(Boolean);
       const poDocLabel = poDocs.map(po => `${po.DocNumber || ('PO#' + po.POID)}${po.VendorID && vendorMap[po.VendorID] ? ' - ' + vendorMap[po.VendorID] : ''} (${po.Status || '-'})`).join('; ');
 
-      // sisa qty yang diminta tapi belum ketutup PO -- dicek kenapa masih ngendon: belum ada vendor
-      // yang nawar sama sekali, sudah ada sebagian nawar tapi belum diputuskan, atau sudah dipilih tinggal nunggu PO
+      // sisa qty yang diminta tapi belum ketutup PO -- dicek RFQID mana yang MASIH beneran menggantung.
+      // RFQID yang salah satu detailnya sudah jadi PO dianggap "selesai" seluruhnya (walau ada baris
+      // lain di RFQID yang sama yang kalah/Tidak Terpilih) -- biar gak numpuk vendor dari batch RFQ
+      // yang udah kelar ke penjelasan sisa yang masih pending.
       const qtyRequestedNum = Number(req.QTY || 0);
       const qtyGap = Math.max(0, qtyRequestedNum - qtyPO);
-      const vendorsInvitedSet = new Set();
-      rfqIds.forEach(rid => { (vendorsByRFQID[rid] || new Set()).forEach(v => vendorsInvitedSet.add(v)); });
-      const vendorsQuotedSet = new Set();
-      rfqRows.forEach(r => { (quotedVendorsByRFQDetailID[r.RFQDetailID] || new Set()).forEach(v => vendorsQuotedSet.add(v)); });
+      const resolvedRfqIds = new Set(rfqRows.filter(r => (podByRfqDetail[r.RFQDetailID] || []).length > 0).map(r => r.RFQID));
+      const openRfqRows = rfqRows.filter(r => !resolvedRfqIds.has(r.RFQID));
+
       let vendorGapLabel = '';
       if (qtyGap > 0 && rfqExists) {
-        if (vendorsInvitedSet.size === 0) {
-          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} belum dikirim RFQ ke vendor mana pun`;
-        } else if (vendorsQuotedSet.size === 0) {
-          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} belum ada penawaran vendor (RFQ dikirim ke ${vendorsInvitedSet.size} vendor, belum ada yang menawar)`;
-        } else if (vendorsQuotedSet.size < vendorsInvitedSet.size) {
-          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} menunggu keputusan pemenang (${vendorsQuotedSet.size}/${vendorsInvitedSet.size} vendor sudah menawar)`;
+        if (openRfqRows.length === 0) {
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} -- RFQ yang ada sudah selesai diproses, mungkin perlu RFQ baru`;
         } else {
-          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} sudah ada penawaran dari semua vendor (${vendorsQuotedSet.size}), menunggu PO diterbitkan`;
+          const openRfqIds = [...new Set(openRfqRows.map(r => r.RFQID))];
+          const lines = openRfqIds.map(rfqid => {
+            const linesForThisRfq = openRfqRows.filter(r => r.RFQID === rfqid);
+            const invited = vendorsByRFQID[rfqid] || new Set();
+            const quoted = new Set();
+            linesForThisRfq.forEach(r => (quotedVendorsByRFQDetailID[r.RFQDetailID] || new Set()).forEach(v => quoted.add(v)));
+            const waiting = invited.size - quoted.size;
+            if (invited.size === 0) return `RFQID ${rfqid}: belum dikirim ke vendor mana pun`;
+            if (waiting > 0) return `RFQID ${rfqid}: menunggu balasan ${waiting} dari ${invited.size} vendor yang diundang`;
+            return `RFQID ${rfqid}: semua vendor (${invited.size}) sudah menawar, menunggu keputusan pemenang`;
+          });
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} masih diproses:<br>` + lines.join('<br>');
         }
       }
 
