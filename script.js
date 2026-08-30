@@ -45,6 +45,7 @@ function getCurrentUser() {
     id: currentSession ? currentSession.id : "",
     name: currentSession ? currentSession.nama : "—",
     qrCodeId: currentSession ? currentSession.qrCodeId : "",
+    kualifikasi: currentSession ? (currentSession.kualifikasi || "") : "",
   };
 }
 
@@ -435,7 +436,7 @@ async function handleBatchSubmitRequest(e) {
         projectId: headerData.projectId,
         tanggalRequest: new Date(today).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }),
         diajukanOleh: user.name,
-        diajukanOlehSub: "",
+        diajukanOlehSub: user.kualifikasi || "",
         diajukanOlehQr: `QrCodeID=${user.qrCodeId}|NoTransaksi=${generatedRefNo}`,
         status: "Menunggu Review",
         keperluan: headerData.purpose,
