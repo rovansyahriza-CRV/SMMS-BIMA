@@ -158,7 +158,7 @@ async function loadMonitoring() {
   resultBanner.style.display = "none";
   try {
     let reqQuery = supabaseClient.from('request')
-      .select('ID, WO_NO, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID')
+      .select('ID, WO_NO, RefNo, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID')
       .order('DATE_REQUEST', { ascending: false });
     if (scopeFilter !== null && scopeFilter !== undefined) reqQuery = reqQuery.eq('PROJECTID', scopeFilter);
     const { data: reqRows, error: reqErr } = await reqQuery;
@@ -180,6 +180,23 @@ async function loadMonitoring() {
     const rfqByRequest = {};
     (rfqDetailRows || []).forEach(r => { if (!rfqByRequest[r.RequestID]) rfqByRequest[r.RequestID] = []; rfqByRequest[r.RequestID].push(r); });
     const rfqDetailIds = (rfqDetailRows || []).map(r => r.RFQDetailID);
+    const allRfqIds = [...new Set((rfqDetailRows || []).map(r => r.RFQID).filter(Boolean))];
+
+    // -- Vendor yang diundang per RFQ (rfqVendor), dan yang sudah kasih penawaran per item (rfqQuote) --
+    // dipakai buat kasih tau kenapa sisa qty yang belum di-PO itu masih ngendon: belum ada vendor
+    // yang nawar sama sekali, atau udah ada penawaran tapi belum diputuskan pemenangnya/di-PO-kan.
+    let vendorsByRFQID = {};
+    if (allRfqIds.length > 0) {
+      const { data, error } = await supabaseClient.from('rfqVendor').select('RFQID, VendorID').in('RFQID', allRfqIds);
+      if (error) throw error;
+      (data || []).forEach(r => { if (!vendorsByRFQID[r.RFQID]) vendorsByRFQID[r.RFQID] = new Set(); vendorsByRFQID[r.RFQID].add(r.VendorID); });
+    }
+    let quotedVendorsByRFQDetailID = {};
+    if (rfqDetailIds.length > 0) {
+      const { data, error } = await supabaseClient.from('rfqQuote').select('RFQDetailID, VendorID').in('RFQDetailID', rfqDetailIds);
+      if (error) throw error;
+      (data || []).forEach(r => { if (!quotedVendorsByRFQDetailID[r.RFQDetailID]) quotedVendorsByRFQDetailID[r.RFQDetailID] = new Set(); quotedVendorsByRFQDetailID[r.RFQDetailID].add(r.VendorID); });
+    }
 
     // -- Purchase Order Detail --
     let podRows = [];
@@ -265,6 +282,27 @@ async function loadMonitoring() {
       const poDocs = [...new Set(pods.map(p => p.POID))].map(poid => poMap[poid]).filter(Boolean);
       const poDocLabel = poDocs.map(po => `${po.DocNumber || ('PO#' + po.POID)}${po.VendorID && vendorMap[po.VendorID] ? ' - ' + vendorMap[po.VendorID] : ''} (${po.Status || '-'})`).join('; ');
 
+      // sisa qty yang diminta tapi belum ketutup PO -- dicek kenapa masih ngendon: belum ada vendor
+      // yang nawar sama sekali, sudah ada sebagian nawar tapi belum diputuskan, atau sudah dipilih tinggal nunggu PO
+      const qtyRequestedNum = Number(req.QTY || 0);
+      const qtyGap = Math.max(0, qtyRequestedNum - qtyPO);
+      const vendorsInvitedSet = new Set();
+      rfqIds.forEach(rid => { (vendorsByRFQID[rid] || new Set()).forEach(v => vendorsInvitedSet.add(v)); });
+      const vendorsQuotedSet = new Set();
+      rfqRows.forEach(r => { (quotedVendorsByRFQDetailID[r.RFQDetailID] || new Set()).forEach(v => vendorsQuotedSet.add(v)); });
+      let vendorGapLabel = '';
+      if (qtyGap > 0 && rfqExists) {
+        if (vendorsInvitedSet.size === 0) {
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} belum dikirim RFQ ke vendor mana pun`;
+        } else if (vendorsQuotedSet.size === 0) {
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} belum ada penawaran vendor (RFQ dikirim ke ${vendorsInvitedSet.size} vendor, belum ada yang menawar)`;
+        } else if (vendorsQuotedSet.size < vendorsInvitedSet.size) {
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} menunggu keputusan pemenang (${vendorsQuotedSet.size}/${vendorsInvitedSet.size} vendor sudah menawar)`;
+        } else {
+          vendorGapLabel = `${qtyGap} ${req.UNIT || ''} sudah ada penawaran dari semua vendor (${vendorsQuotedSet.size}), menunggu PO diterbitkan`;
+        }
+      }
+
       const qtyVendorReceived = podetailIdsForReq.reduce((s, id) => s + (vrMap[id] || 0), 0);
 
       let deliveries = [];
@@ -276,6 +314,7 @@ async function loadMonitoring() {
 
       const item = {
         RequestID: req.ID,
+        RefNo: req.RefNo,
         WO_NO: req.WO_NO,
         DateRequest: req.DATE_REQUEST,
         ItemDescription: req.ItemDescription,
@@ -285,7 +324,7 @@ async function loadMonitoring() {
         QtyRequested: Number(req.QTY || 0),
         Unit: req.UNIT,
         rfq: { exists: rfqExists, ids: rfqIds },
-        po: { exists: poExists, qty: qtyPO, label: poDocLabel },
+        po: { exists: poExists, qty: qtyPO, label: poDocLabel, gapQty: qtyGap, gapLabel: vendorGapLabel },
         vendorReceiving: { qty: qtyVendorReceived },
         delivery: { qty: qtyDelivered, list: deliveries },
         siteReceiving: { qty: qtySiteReceived },
@@ -376,14 +415,15 @@ function renderMonitoring() {
       <div class="req-head">
         <div>
           <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}</h4>
-          <p>Project ${it.ProjectID != null ? it.ProjectID : '-'} · WO: ${it.WO_NO || '-'} · Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
+          <p>No. Request: ${it.RefNo || '-'} · WO: ${it.WO_NO || '-'} · Project ${it.ProjectID != null ? it.ProjectID : '-'}</p>
+          <p>Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
         </div>
         <span class="stage-badge ${it.stage.cls}">${it.stage.label}</span>
       </div>
       <div class="stage-detail">
         ${stageRowHtml('1. Request', true, `${it.QtyRequested} ${it.Unit || ''} diminta`, '')}
         ${stageRowHtml('2. RFQ', it.rfq.exists, it.rfq.exists ? 'Sudah dibuat' : 'Belum dibuat', it.rfq.exists ? ('RFQID: ' + it.rfq.ids.join(', ')) : '')}
-        ${stageRowHtml('3. Purchase Order', it.po.exists, it.po.exists ? `${it.po.qty} ${it.Unit || ''} dipesan` : 'Belum terbit', it.po.label || '')}
+        ${stageRowHtml('3. Purchase Order', it.po.exists, it.po.exists ? `${it.po.qty} ${it.Unit || ''} dipesan` : 'Belum terbit', [it.po.label, it.po.gapLabel].filter(Boolean).join('<br>'))}
         ${stageRowHtml('4. Diterima dari Vendor', it.vendorReceiving.qty > 0, `${it.vendorReceiving.qty} ${it.Unit || ''}`, it.po.qty ? `dari ${it.po.qty} dipesan` : '')}
         ${stageRowHtml('5. Dikirim ke Site', it.delivery.qty > 0, `${it.delivery.qty} ${it.Unit || ''}`, deliverySubLabel(it.delivery.list))}
         ${stageRowHtml('6. Diterima di Site', it.siteReceiving.qty > 0, `${it.siteReceiving.qty} ${it.Unit || ''}`, it.delivery.qty ? `dari ${it.delivery.qty} dikirim` : '')}
