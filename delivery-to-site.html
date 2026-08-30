@@ -650,7 +650,12 @@ document.getElementById('selectPoDispatch').addEventListener('change', async (e)
         <tr data-podetailid="${d.PODetailID}" data-sisa="${d.sisa}">
           <td>${d.ItemDescription}</td>
           <td style="text-align:center;">${d.sisa} ${d.Unit || ''}</td>
-          <td><input type="number" class="input-qty-dispatch" min="0" max="${d.sisa}" step="1" placeholder="0"></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <input type="number" class="input-qty-dispatch" min="0" max="${d.sisa}" step="1" placeholder="0">
+              <input type="checkbox" class="chk-qty-all" title="Kirim semua (qty = siap kirim)" style="width:18px; height:18px; flex-shrink:0;">
+            </div>
+          </td>
         </tr>`;
     });
     wrapEl.innerHTML = `
@@ -658,6 +663,22 @@ document.getElementById('selectPoDispatch').addEventListener('change', async (e)
         <thead><tr><th>Item</th><th>Siap Kirim</th><th>Qty Kirim</th></tr></thead>
         <tbody id="dispatchItemsBody">${rowsHtml}</tbody>
       </table>`;
+
+    // centang = isi qty penuh sesuai sisa siap kirim, dan kunci input-nya biar gak kelewat diubah manual
+    wrapEl.querySelectorAll('#dispatchItemsBody tr').forEach(tr => {
+      const sisa = Number(tr.dataset.sisa);
+      const qtyInput = tr.querySelector('.input-qty-dispatch');
+      const chk = tr.querySelector('.chk-qty-all');
+      chk.addEventListener('change', () => {
+        if (chk.checked) {
+          qtyInput.value = sisa;
+          qtyInput.readOnly = true;
+        } else {
+          qtyInput.readOnly = false;
+          qtyInput.value = '';
+        }
+      });
+    });
   } catch (e) {
     wrapEl.innerHTML = '';
     showBanner(resultBanner, "🔴 Gagal memuat item PO: " + e.message, "fail");
