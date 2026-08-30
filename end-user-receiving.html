@@ -7,6 +7,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="driveBridge.js"></script>
+<script src="reportPdf.js"></script>
 <style>
   :root {
     --bg:#ECEEF1; --surface:#FFFFFF; --surface-2:#F5F6F8;
@@ -113,6 +117,9 @@
 
     <div id="cartWrap" style="margin-top:14px;"></div>
 
+    <label class="field-label" style="margin-top:14px;">Foto serah terima (opsional)</label>
+    <input type="file" id="handoverPhoto" accept="image/*" capture="environment">
+
     <label class="field-label" style="margin-top:14px;">Catatan (opsional)</label>
     <textarea id="handoverNotes" rows="2"></textarea>
 
@@ -128,6 +135,9 @@
 const SUPABASE_URL = "https://nhmpwjriextmbotmvvbu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Drive File Bridge -- lihat drive-bridge-appsscript.gs & driveBridge.js. Isi setelah deploy.
+const DRIVE_BRIDGE_URL = "PASTE_URL_WEB_APP_DISINI";
+const DRIVE_BRIDGE_TOKEN = "PASTE_TOKEN_DISINI";
 const FACE_MATCH_THRESHOLD = 0.45;
 const AMBIGUITY_MARGIN = 0.12;
 
@@ -139,10 +149,12 @@ let refDescriptor = null;
 let allFaceData = null;
 let matchMode = "1:1";
 let matchedLocation = null;
+let matchedLat = null, matchedLng = null; // koordinat GPS mentah, disimpan buat report
 let currentFacingModeFace = "user"; // depan buat storeman login, diganti "environment" pas scan penerima
 
 let pendingKarId = null, pendingKarNama = "";
 let verifiedId = null, verifiedNama = "";       // storeman
+let verifiedQrCodeId = "";                      // snapshot QrCodeId storeman (qrCodeId global ke-overwrite pas scan penerima)
 let recipientId = null, recipientNama = "";     // end user yang nerima barang
 
 let materialList = [];
@@ -414,6 +426,7 @@ function finalizeVerification() {
   if (scanPurpose === "self") {
     verifiedId = pendingKarId;
     verifiedNama = pendingKarNama;
+    verifiedQrCodeId = qrCodeId;
     matchInfoEl.style.display = "block";
     matchInfoEl.innerHTML = `✅ Terverifikasi: ${verifiedNama}`;
     resolveAccessAndProceed();
@@ -493,6 +506,7 @@ function initGPS() {
   showBanner(locBanner, "🔄 Mengunci lokasi GPS...", "info");
   navigator.geolocation.getCurrentPosition(async (pos) => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    matchedLat = lat; matchedLng = lng;
     showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
     try {
       const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
@@ -757,6 +771,34 @@ async function submitHandover() {
 
     if (payload.length === 0) throw new Error("Tidak ada item yang valid buat diserahkan.");
 
+    // No Transaksi -- satu nomor buat seluruh baris dalam transaksi (1x serah terima) ini
+    setStatus("Membuat No. Transaksi...", "info");
+    const { data: noTrx, error: noTrxErr } = await supabaseClient.rpc('generate_no_transaksi_eur');
+    if (noTrxErr) throw noTrxErr;
+
+    // Foto opsional -- kalau diisi, dikompres sekali (dipakai buat upload Drive & tempel ke PDF)
+    const photoFile = document.getElementById('handoverPhoto').files[0];
+    let photoURL = null, photoFileID = null, photoDataUrl = null;
+    if (photoFile) {
+      setStatus("Mengompres foto...", "info");
+      const { compressedBlob, dataUrl } = await compressImageForReport(photoFile);
+      photoDataUrl = dataUrl;
+      setStatus("Mengupload foto...", "info");
+      const uploaded = await uploadToDrive("photos", `EUR_${noTrx.replace(/\//g, '-')}.jpg`, "image/jpeg", compressedBlob);
+      photoURL = uploaded.directUrl;
+      photoFileID = uploaded.fileId;
+    }
+
+    payload.forEach(p => {
+      p.NoTransaksi = noTrx;
+      p.PhotoURL = photoURL;
+      p.PhotoFileID = photoFileID;
+      p.LokasiNama = matchedLocation ? matchedLocation.namalokasi : null;
+      p.Latitude = matchedLat;
+      p.Longitude = matchedLng;
+    });
+
+    setStatus("Menyimpan serah terima...", "info");
     const { error } = await supabaseClient.from('endUserReceiving').insert(payload);
     if (error) throw error;
 
@@ -764,8 +806,40 @@ async function submitHandover() {
     const summary = cart.filter(c => c.qty > 0).map(c => { const code = itemCode(c); return `${code ? '[' + code + '] ' : ''}${c.ItemDescription} — ${c.qty} ${c.Unit || ''}`; }).join('<br>');
     showBanner(resultBanner, `✅ Barang berhasil diserahkan ke <strong>${recipientNama}</strong> oleh storeman ${verifiedNama}:<br>${summary}`, "ok");
 
+    // Generate & upload report PDF -- dibungkus try/catch sendiri: kalau ini gagal, serah
+    // terimanya TETAP TERSIMPAN (udah di-insert di atas), cuma reportnya aja yang gak kebuat.
+    try {
+      const items = cart.filter(c => c.qty > 0).map(c => ({
+        kode: itemCode(c) || (c.ItemGroup || ''),
+        desk: c.ItemDescription,
+        qty: c.qty,
+        unit: c.Unit || '',
+      }));
+      const pdfDoc = await generateEndUserReceivingReportPdf({
+        noTransaksi: noTrx,
+        tanggalSerahTerima: new Date().toLocaleString('id-ID'),
+        projectId: projectCode,
+        diserahkanOleh: verifiedNama,
+        diserahkanOlehSub: 'Storeman — ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
+        diserahkanOlehQr: `QrCodeID=${verifiedQrCodeId}|NoTransaksi=${noTrx}`,
+        diterimaOleh: recipientNama,
+        diterimaOlehSub: 'End User',
+        diterimaOlehQr: `QrCodeID=${qrCodeId}|NoTransaksi=${noTrx}`,
+        lokasiNama: matchedLocation ? matchedLocation.namalokasi : null,
+        items,
+        photoDataUrl,
+      });
+      const pdfBlob = reportPdfToBlob(pdfDoc);
+      const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `EUR_${noTrx.replace(/\//g, '-')}.pdf`);
+      await supabaseClient.from('endUserReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+    } catch (reportErr) {
+      console.warn('Gagal membuat/upload report PDF:', reportErr);
+      showBanner(resultBanner, `✅ Serah terima tersimpan, tapi report PDF gagal dibuat: ${reportErr.message}`, "ok");
+    }
+
     cart = [];
     document.getElementById('handoverNotes').value = '';
+    document.getElementById('handoverPhoto').value = '';
     document.getElementById('materialSearch').value = '';
     scanPurpose = "self";
     currentFacingModeFace = "user";
