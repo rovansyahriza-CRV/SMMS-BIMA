@@ -223,7 +223,7 @@ async function loadMonitoring() {
     let allDeliveryRows = [];
     if (poDetailIds.length > 0) {
       const { data, error } = await supabaseClient
-        .from('delivery').select('DeliveryID, PODetailID, QtyDelivered, DestinationSite, SuratJalanNo, DeliveryDate, ReceivedDate').in('PODetailID', poDetailIds);
+        .from('delivery').select('DeliveryID, PODetailID, QtyDelivered, DestinationSite, SuratJalanNo, DeliveryDate').in('PODetailID', poDetailIds);
       if (error) throw error;
       allDeliveryRows = data || [];
       allDeliveryRows.forEach(d => { if (!deliveryByPodetail[d.PODetailID]) deliveryByPodetail[d.PODetailID] = []; deliveryByPodetail[d.PODetailID].push(d); });
