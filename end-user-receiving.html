@@ -582,37 +582,88 @@ async function loadAvailableMaterial(projCode) {
     Object.values(grouped).forEach(g => g.breakdown.sort((a, b) => a.ReceivingID - b.ReceivingID));
 
     const podetailIds = Object.keys(grouped).map(Number);
-    const { data: details, error: detErr } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit').in('PODetailID', podetailIds);
+    const { data: details, error: detErr } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit, RFQDetailID').in('PODetailID', podetailIds);
     if (detErr) throw detErr;
     (details || []).forEach(d => {
-      if (grouped[d.PODetailID]) { grouped[d.PODetailID].ItemDescription = d.ItemDescription; grouped[d.PODetailID].Unit = d.Unit; }
+      if (grouped[d.PODetailID]) { grouped[d.PODetailID].ItemDescription = d.ItemDescription; grouped[d.PODetailID].Unit = d.Unit; grouped[d.PODetailID].RFQDetailID = d.RFQDetailID; }
     });
 
+    // tarik ItemID + ItemGroup dari katalog asli, ditelusuri balik: purchaseOrderDetail -> rfqDetail -> request
+    // (ItemGroup gak disimpan di rfqDetail, jadi harus ambil dari request-nya langsung)
+    const rfqDetailIds = [...new Set(Object.values(grouped).map(g => g.RFQDetailID).filter(Boolean))];
+    if (rfqDetailIds.length > 0) {
+      const { data: rfqDetails, error: rfqErr } = await supabaseClient.from('rfqDetail').select('rfqDetailID, ItemID, RequestID').in('rfqDetailID', rfqDetailIds);
+      if (rfqErr) throw rfqErr;
+      const rfqDetailMap = {};
+      (rfqDetails || []).forEach(r => rfqDetailMap[r.rfqDetailID] = r);
+
+      const requestIds = [...new Set((rfqDetails || []).map(r => r.RequestID).filter(Boolean))];
+      let requestGroupMap = {};
+      if (requestIds.length > 0) {
+        const { data: reqRows, error: reqErr2 } = await supabaseClient.from('request').select('ID, ItemGroup').in('ID', requestIds);
+        if (reqErr2) throw reqErr2;
+        (reqRows || []).forEach(r => requestGroupMap[r.ID] = r.ItemGroup);
+      }
+
+      Object.values(grouped).forEach(g => {
+        const rd = rfqDetailMap[g.RFQDetailID];
+        g.ItemID = rd ? rd.ItemID : null;
+        g.ItemGroup = (rd && requestGroupMap[rd.RequestID]) || 'Lainnya';
+      });
+    }
+
     materialList = Object.values(grouped).filter(g => g.ItemDescription);
-    resultsEl.innerHTML = materialList.length === 0
-      ? '<p style="font-size:13px;color:var(--text-muted);">Stok site kosong.</p>'
-      : '<p style="font-size:13px;color:var(--text-muted);">Ketik nama item di atas buat cari.</p>';
+    renderMaterialList('');
   } catch (e) {
     showBanner(resultBanner, "🔴 Gagal memuat daftar material: " + e.message, "fail");
   }
 }
 
-document.getElementById('materialSearch').addEventListener('input', (e) => {
-  const q = e.target.value.trim().toLowerCase();
+document.getElementById('materialSearch').addEventListener('input', (e) => renderMaterialList(e.target.value));
+
+// tampilan stok dikelompokkan per ItemGroup (Material/Consumables/Tools/dst), tiap item nunjukin
+// kode ItemID-nya biar gampang diidentifikasi di lapangan pas milih barang yang mau diserahkan.
+function renderMaterialList(filterQuery) {
   const resultsEl = document.getElementById('materialResults');
-  if (!q) { resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Ketik nama item di atas buat cari.</p>'; return; }
-  const matches = materialList.filter(m => (m.ItemDescription || '').toLowerCase().includes(q));
-  if (matches.length === 0) { resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang cocok.</p>'; return; }
-  resultsEl.innerHTML = '';
-  matches.forEach(m => {
-    const row = document.createElement('div');
-    row.className = 'pending-card';
-    row.style.cursor = 'pointer';
-    row.innerHTML = `<h4>${m.ItemDescription}</h4><p>Tersedia: ${m.total} ${m.Unit || ''}</p>`;
-    row.onclick = () => addToCart(m);
-    resultsEl.appendChild(row);
+  if (materialList.length === 0) {
+    resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Stok site kosong.</p>';
+    return;
+  }
+
+  const q = (filterQuery || '').trim().toLowerCase();
+  const filtered = q
+    ? materialList.filter(m => (m.ItemDescription || '').toLowerCase().includes(q) || (m.ItemID != null && String(m.ItemID).toLowerCase().includes(q)))
+    : materialList;
+
+  if (filtered.length === 0) {
+    resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang cocok.</p>';
+    return;
+  }
+
+  const byGroup = {};
+  filtered.forEach(m => {
+    const g = m.ItemGroup || 'Lainnya';
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(m);
   });
-});
+
+  resultsEl.innerHTML = '';
+  Object.keys(byGroup).sort().forEach(groupName => {
+    const header = document.createElement('p');
+    header.style.cssText = 'font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--steel-light); margin:14px 0 6px;';
+    header.textContent = groupName;
+    resultsEl.appendChild(header);
+
+    byGroup[groupName].forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'pending-card';
+      row.style.cursor = 'pointer';
+      row.innerHTML = `<h4>${m.ItemID != null ? '[' + m.ItemID + '] ' : ''}${m.ItemDescription}</h4><p>Tersedia: ${m.total} ${m.Unit || ''}</p>`;
+      row.onclick = () => addToCart(m);
+      resultsEl.appendChild(row);
+    });
+  });
+}
 
 // ============ 7. Cart -- daftar barang yang mau diserahkan (bisa lebih dari 1 item) ============
 function addToCart(material) {
