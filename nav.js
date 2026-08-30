@@ -19,9 +19,9 @@ function showMenu(session) {
   nav.menuSection.hidden = false;
   nav.logoutBtn.hidden = false;
   nav.userName.textContent = session.nama;
-  const hasRequest = isAuthorized(session.author, MENU_AUTH.Request);
-  const hasReceived = isAuthorized(session.author, MENU_AUTH.Received);
-  const hasDistribusi = isAuthorized(session.author, MENU_AUTH.Distribusi);
+  const hasRequest = isAuthorized(session.pic, MENU_AUTH.Request);
+  const hasReceived = isAuthorized(session.pic, MENU_AUTH.Received);
+  const hasDistribusi = isAuthorized(session.pic, MENU_AUTH.Distribusi);
   const hasApproval = MENU_AUTH.Approval ? isAuthorized(session.author, MENU_AUTH.Approval) : false;
   nav.menuRequest.hidden = !hasRequest;
   nav.menuReceived.hidden = !hasReceived;
@@ -36,12 +36,12 @@ function showLogin() {
 }
 async function populateUserDropdown() {
   try {
-    const karyawan = await fetchKaryawanSheet("KaryawanTbl");
+    const karyawan = await fetchAllKaryawan();
     nav.loginId.innerHTML = `<option value="" disabled selected>Pilih nama</option>`;
     karyawan.forEach((k) => {
       const opt = document.createElement("option");
       opt.value = k.Id;
-      opt.textContent = k.NamaPersonnel;
+      opt.textContent = karyawanName(k, k.Id);
       nav.loginId.appendChild(opt);
     });
     nav.loginId.disabled = false;
