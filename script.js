@@ -1,5 +1,4 @@
-// ==== Supabase client (SUPABASE_URL / SUPABASE_KEY didefinisikan di config.js) ====
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// ==== Supabase client (dibuat di config.js sebagai supabaseClient) ====
 
 // ==== state ====
 let rowIdCounter = 0;
@@ -25,15 +24,15 @@ function getCurrentUser() {
   return { id: currentSession ? currentSession.id : "", name: currentSession ? currentSession.nama : "—" };
 }
 
-// ==== Project ID otomatis dari Author (pola "Request <projectId>", cth "Request 101") ====
+// ==== Project ID otomatis dari PIC (pola "Request <projectId>", cth "Request 101") ====
 // - 1 project cocok  -> field dikunci (readonly), gak perlu diketik manual lagi
 // - >1 project cocok -> jadi dropdown pilihan, gak bisa ketik bebas
 // - gak ada tag project-scoped sama sekali (cuma tag polos "Request", biasa dipakai HO)
 //   -> tetap free text seperti sebelumnya, gak dibatasi
 function setupProjectIdField() {
   const wrap = document.getElementById("projectIdWrap");
-  const author = currentSession ? currentSession.author : "";
-  const allowed = getAuthorizedProjects(author, "Request");
+  const pic = currentSession ? currentSession.pic : "";
+  const allowed = getAuthorizedProjects(pic, "Request");
 
   if (Array.isArray(allowed) && allowed.length === 1) {
     wrap.innerHTML = `<input type="text" id="projectId" value="${allowed[0]}" readonly>`;
