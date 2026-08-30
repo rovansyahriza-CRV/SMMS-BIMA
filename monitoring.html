@@ -115,6 +115,9 @@
   </div>
 
   <div id="tabStok" style="display:none;">
+    <div class="card">
+      <input type="text" id="stockSearch" placeholder="Cari kode atau nama item...">
+    </div>
     <div id="stockSummaryRow" class="summary-row"></div>
     <div id="stockReportListWrap"></div>
   </div>
@@ -132,6 +135,7 @@ let pipelineData = [];    // hasil akhir per baris request, siap dirender
 let stockReportData = []; // hasil akumulasi per item (Laporan Stok), diisi bareng pipelineData
 let activeFilter = "all";
 let searchQuery = "";
+let stockSearchQuery = "";
 let activeTab = "proses"; // "proses" | "stok"
 
 const resultBanner = document.getElementById('resultBanner');
@@ -353,10 +357,11 @@ async function loadMonitoring() {
       // -- akumulasi ke Laporan Stok: sedang proses order / OnHand di site (per site) / sudah handover --
       const stockKey = req.ItemID != null ? `${req.ItemGroup || ''}::${req.ItemID}` : `desc::${(req.ItemDescription || '').trim().toLowerCase()}`;
       if (!stockMap[stockKey]) {
-        stockMap[stockKey] = { ItemGroup: req.ItemGroup, ItemID: req.ItemID, ItemDescription: req.ItemDescription, Unit: req.UNIT, totalRequested: 0, totalOnHand: 0, totalHandedOver: 0, siteOnHand: {} };
+        stockMap[stockKey] = { ItemGroup: req.ItemGroup, ItemID: req.ItemID, ItemDescription: req.ItemDescription, Unit: req.UNIT, totalRequested: 0, totalVendorReceived: 0, totalOnHand: 0, totalHandedOver: 0, siteOnHand: {} };
       }
       const sm = stockMap[stockKey];
       sm.totalRequested += qtyRequestedNum;
+      sm.totalVendorReceived += qtyVendorReceived;
       sm.totalHandedOver += qtyEndUser;
       deliveries.forEach(d => {
         const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDelivery[d.DeliveryID] || 0);
@@ -392,7 +397,7 @@ async function loadMonitoring() {
     stockReportData = Object.values(stockMap).map(sm => ({
       ...sm,
       code: itemCode(sm.ItemGroup, sm.ItemID),
-      totalInProcess: Math.max(0, sm.totalRequested - sm.totalOnHand - sm.totalHandedOver)
+      totalInProcess: Math.max(0, sm.totalRequested - sm.totalVendorReceived)
     }));
 
     renderMonitoring();
@@ -543,6 +548,8 @@ function renderStockSummary() {
   `;
 }
 
+document.getElementById('stockSearch').addEventListener('input', (e) => { stockSearchQuery = e.target.value; renderStockReport(); });
+
 function renderStockReport() {
   renderStockSummary();
   const wrap = document.getElementById('stockReportListWrap');
@@ -551,8 +558,18 @@ function renderStockReport() {
     return;
   }
 
+  const q = (stockSearchQuery || '').trim().toLowerCase();
+  const filtered = q
+    ? stockReportData.filter(sm => (sm.ItemDescription || '').toLowerCase().includes(q) || (sm.code && sm.code.toLowerCase().includes(q)))
+    : stockReportData;
+
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang cocok.</p>';
+    return;
+  }
+
   const byGroup = {};
-  stockReportData.forEach(sm => {
+  filtered.forEach(sm => {
     const g = sm.ItemGroup || 'Lainnya';
     if (!byGroup[g]) byGroup[g] = [];
     byGroup[g].push(sm);
