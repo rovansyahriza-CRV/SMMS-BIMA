@@ -17,6 +17,14 @@ const supabaseClient = (typeof supabase !== "undefined")
   ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
   : null;
 
+// Drive File Bridge — dipakai buat simpan foto (delivery-to-site/end-user-receiving) &
+// PDF report ke Google Drive 100GB, lewat Apps Script (lihat drive-bridge-appsscript.gs).
+// ISI DUA VALUE INI setelah kamu deploy Apps Script-nya:
+// - DRIVE_BRIDGE_URL  = URL Web App hasil deploy (https://script.google.com/macros/s/.../exec)
+// - DRIVE_BRIDGE_TOKEN = string yang sama persis dengan Script Property "UPLOAD_TOKEN"
+const DRIVE_BRIDGE_URL = "PASTE_URL_WEB_APP_DISINI";
+const DRIVE_BRIDGE_TOKEN = "PASTE_TOKEN_DISINI";
+
 // Grup yang butuh input durasi sewa (bukan konsumsi habis pakai)
 const RENTAL_GROUPS = ["Tools", "HeavyEquipment"];
 
