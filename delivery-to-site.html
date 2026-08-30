@@ -161,8 +161,8 @@ let matchedLocation = null;
 let matchedLat = null, matchedLng = null; // koordinat GPS mentah, disimpan buat report
 let currentFacingModeFace = "user";
 
-let pendingKarId = null, pendingKarNama = "";
-let verifiedId = null, verifiedNama = "";
+let pendingKarId = null, pendingKarNama = "", pendingKarKualifikasi = "";
+let verifiedId = null, verifiedNama = "", verifiedKualifikasi = "";
 
 const locBanner = document.getElementById('locBanner');
 const resultBanner = document.getElementById('resultBanner');
@@ -303,6 +303,7 @@ async function proceedWithQr() {
     if (!karRow) { setStatus("❌ Karyawan tidak ditemukan untuk QR ini.", "fail"); showRetry(); return; }
     pendingKarId = karRow.id;
     pendingKarNama = karRow.nama;
+    pendingKarKualifikasi = karRow.kualifikasi || "";
   } catch (e) {
     setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail"); showRetry(); return;
   }
@@ -399,6 +400,7 @@ btnScanFace.onclick = async () => {
       if (!karRow) { setStatus("❌ Karyawan tidak ditemukan.", "fail"); btnScanFace.disabled = false; return; }
       pendingKarId = karRow.id;
       pendingKarNama = karRow.nama;
+      pendingKarKualifikasi = karRow.kualifikasi || "";
     } catch (e) {
       setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
       btnScanFace.disabled = false;
@@ -431,6 +433,7 @@ function finalizeVerification() {
 
   verifiedId = pendingKarId;
   verifiedNama = pendingKarNama;
+  verifiedKualifikasi = pendingKarKualifikasi;
 
   matchInfoEl.style.display = "block";
   matchInfoEl.innerHTML = `✅ Terverifikasi: ${verifiedNama}`;
@@ -1019,7 +1022,7 @@ async function showPendingDeliveries(projCode) {
               tanggalTerima: new Date().toLocaleString('id-ID'),
               tujuanSite: matchedLocation ? matchedLocation.namalokasi : '-',
               diterimaOleh: verifiedNama,
-              diterimaOlehSub: 'Site: ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
+              diterimaOlehSub: (verifiedKualifikasi || 'Site') + ': ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
               diterimaOlehQr: `QrCodeID=${qrCodeId}|NoTransaksi=${noTrx}`,
               lokasiNama: matchedLocation ? matchedLocation.namalokasi : null,
               items,
