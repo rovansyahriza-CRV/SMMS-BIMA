@@ -100,6 +100,7 @@ async function login(id, password) {
     nama: karyawanName(karyawanRow, pw.Id),
     author: pw.Author || "",
     pic: pw.pic || pw.PIC || "",
+    qrCodeId: karyawanRow ? (karyawanRow.QrCodeId || karyawanRow.QrCodeID || "") : "",
   };
 
   setSession(session);
@@ -121,6 +122,7 @@ async function bypassAuthFromBadge() {
       nama: karyawanName(karyawanRow, pw.Id),
       author: pw.Author || "",
       pic: pw.pic || pw.PIC || "",
+      qrCodeId: karyawanRow ? (karyawanRow.QrCodeId || karyawanRow.QrCodeID || "") : "",
     });
     return true;
   } catch (e) {
