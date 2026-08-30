@@ -54,10 +54,10 @@
   input[readonly] { background:#f1efe7; color:var(--text-muted); }
   label.field-label { display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin:0 0 6px; }
   footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px; line-height:1.5; }
-  .pending-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; cursor:pointer; }
+  .pending-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; }
   .pending-card:hover { border-color:var(--steel-light); }
   .pending-card.selected { border-color:var(--accent); background:var(--danger-bg); }
-  .pending-card h4 { margin:0 0 6px; font-size:14px; color:var(--steel); }
+  .pending-card h4 { margin:0 0 6px; font-size:14px; color:var(--steel); cursor:pointer; }
   .pending-card p { margin:2px 0; font-size:12px; color:var(--text-muted); }
 </style>
 </head>
@@ -129,7 +129,6 @@
   <div id="pendingCard" class="card" style="display:none;">
     <p class="card-label">Kiriman Menunggu Konfirmasi di <span id="pendingSiteLabel"></span></p>
     <div id="pendingListWrap"></div>
-    <button id="btnConfirmReceive" class="btn-block btn-accent" style="display:none;">Konfirmasi Barang Diterima</button>
   </div>
 
   <button id="btnRetry" class="btn-block btn-secondary" style="display:none;">🔁 Ulangi</button>
@@ -156,7 +155,6 @@ let currentFacingModeFace = "user";
 
 let pendingKarId = null, pendingKarNama = "";
 let verifiedId = null, verifiedNama = "";
-let selectedSuratJalan = null; // dipakai di flow Penerima
 
 const locBanner = document.getElementById('locBanner');
 const resultBanner = document.getElementById('resultBanner');
@@ -741,11 +739,10 @@ document.getElementById('btnSubmitDispatch').onclick = async () => {
   }
 };
 
-// ============ 5b. LIST PENERIMA -- kiriman menunggu konfirmasi di site ini, dibatasi ke project ini ============
+// ============ 5b. RECEIVING DI SITE -- storeman terima per-item (qty + checkbox), tulis ke siteReceiving ============
 async function showPendingDeliveries(projCode) {
   const pendingCard = document.getElementById('pendingCard');
   const listWrap = document.getElementById('pendingListWrap');
-  const btnConfirm = document.getElementById('btnConfirmReceive');
   document.getElementById('pendingSiteLabel').textContent = matchedLocation ? matchedLocation.namalokasi : "-";
   pendingCard.style.display = "block";
   listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat daftar kiriman...</p>';
@@ -760,23 +757,36 @@ async function showPendingDeliveries(projCode) {
     const { data: rows, error } = await supabaseClient
       .from('delivery')
       .select('DeliveryID, POID, PODetailID, QtyDelivered, SuratJalanNo, PengirimBy, DeliveryDate, Notes')
-      .is('DeliveredBy', null)
       .eq('DestinationSite', matchedLocation ? matchedLocation.namalokasi : '__none__')
       .in('POID', projectPoIds);
     if (error) throw error;
 
     if (!rows || rows.length === 0) {
-      listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada kiriman yang menunggu konfirmasi di site ini.</p>';
+      listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada kiriman untuk site ini.</p>';
+      return;
+    }
+
+    // hitung sisa yang belum diterima (siteReceiving) per DeliveryID -- pola sama kayak vendorReceiving/dispatch
+    const deliveryIds = rows.map(r => r.DeliveryID);
+    const { data: siteRecv, error: srErr } = await supabaseClient.from('siteReceiving').select('DeliveryID, QtyReceived').in('DeliveryID', deliveryIds);
+    if (srErr) throw srErr;
+    const receivedMap = {};
+    (siteRecv || []).forEach(r => receivedMap[r.DeliveryID] = (receivedMap[r.DeliveryID] || 0) + Number(r.QtyReceived || 0));
+
+    const rowsWithSisa = rows.map(r => ({ ...r, sisa: Number(r.QtyDelivered || 0) - (receivedMap[r.DeliveryID] || 0) })).filter(r => r.sisa > 0);
+
+    if (rowsWithSisa.length === 0) {
+      listWrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada kiriman yang menunggu diterima di site ini (semua sudah diterima penuh).</p>';
       return;
     }
 
     // lengkapi deskripsi item + nama pengirim
-    const podetailIds = [...new Set(rows.map(r => r.PODetailID))];
+    const podetailIds = [...new Set(rowsWithSisa.map(r => r.PODetailID))];
     const { data: details } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit').in('PODetailID', podetailIds);
     const detailMap = {};
     (details || []).forEach(d => detailMap[d.PODetailID] = d);
 
-    const pengirimIds = [...new Set(rows.map(r => r.PengirimBy).filter(Boolean))];
+    const pengirimIds = [...new Set(rowsWithSisa.map(r => r.PengirimBy).filter(Boolean))];
     const pengirimNamaMap = {};
     for (const id of pengirimIds) {
       try {
@@ -787,7 +797,7 @@ async function showPendingDeliveries(projCode) {
 
     // kelompokkan per No. Surat Jalan
     const groups = {};
-    rows.forEach(r => {
+    rowsWithSisa.forEach(r => {
       const key = r.SuratJalanNo || ('DeliveryID-' + r.DeliveryID);
       if (!groups[key]) groups[key] = [];
       groups[key].push(r);
@@ -797,10 +807,22 @@ async function showPendingDeliveries(projCode) {
     Object.keys(groups).forEach(suratJalanNo => {
       const items = groups[suratJalanNo];
       const first = items[0];
-      const itemLines = items.map(it => {
+
+      let itemRowsHtml = '';
+      items.forEach(it => {
         const d = detailMap[it.PODetailID] || {};
-        return `${d.ItemDescription || 'Item #' + it.PODetailID} — ${it.QtyDelivered} ${d.Unit || ''}`;
-      }).join('<br>');
+        itemRowsHtml += `
+          <tr data-deliveryid="${it.DeliveryID}" data-sisa="${it.sisa}">
+            <td>${d.ItemDescription || 'Item #' + it.PODetailID}</td>
+            <td style="text-align:center;">${it.sisa} ${d.Unit || ''}</td>
+            <td>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <input type="number" class="input-qty-site-receive" min="0" max="${it.sisa}" step="1" placeholder="0">
+                <input type="checkbox" class="chk-qty-all-site" title="Terima semua (qty = sisa)" style="width:18px; height:18px; flex-shrink:0;">
+              </div>
+            </td>
+          </tr>`;
+      });
 
       const card = document.createElement('div');
       card.className = 'pending-card';
@@ -809,14 +831,77 @@ async function showPendingDeliveries(projCode) {
         <h4>No. Surat Jalan: ${suratJalanNo}</h4>
         <p>Pengirim: ${pengirimNamaMap[first.PengirimBy] || '-'}</p>
         <p>Tanggal Kirim: ${first.DeliveryDate ? new Date(first.DeliveryDate).toLocaleString('id-ID') : '-'}</p>
-        <p style="margin-top:8px; color:var(--text);">${itemLines}</p>
+        <div class="site-receive-detail" style="display:none; margin-top:12px;">
+          <table class="item-table">
+            <thead><tr><th>Item</th><th>Sisa</th><th>Qty Diterima</th></tr></thead>
+            <tbody>${itemRowsHtml}</tbody>
+          </table>
+          <label class="field-label" style="margin-top:12px;">Catatan (opsional)</label>
+          <textarea class="site-receive-notes" rows="2"></textarea>
+          <button class="btn-block btn-accent btn-submit-site-receive" style="margin-top:12px;">Simpan Penerimaan</button>
+        </div>
       `;
-      card.onclick = () => {
+
+      const detailEl = card.querySelector('.site-receive-detail');
+
+      // checkbox per item -- centang = qty diterima = sisa penuh, dan kunci inputnya
+      card.querySelectorAll('tbody tr').forEach(tr => {
+        const sisa = Number(tr.dataset.sisa);
+        const qtyInput = tr.querySelector('.input-qty-site-receive');
+        const chk = tr.querySelector('.chk-qty-all-site');
+        chk.addEventListener('change', () => {
+          if (chk.checked) { qtyInput.value = sisa; qtyInput.readOnly = true; }
+          else { qtyInput.readOnly = false; qtyInput.value = ''; }
+        });
+      });
+
+      card.querySelector('h4').onclick = () => {
+        const isOpen = detailEl.style.display === "block";
+        document.querySelectorAll('.site-receive-detail').forEach(el => el.style.display = "none");
         document.querySelectorAll('.pending-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        selectedSuratJalan = suratJalanNo;
-        btnConfirm.style.display = "block";
+        if (!isOpen) {
+          detailEl.style.display = "block";
+          card.classList.add('selected');
+        }
       };
+
+      card.querySelector('.btn-submit-site-receive').onclick = async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        try {
+          const notes = card.querySelector('.site-receive-notes').value || null;
+          const payload = [];
+          card.querySelectorAll('tbody tr').forEach(tr => {
+            const deliveryId = Number(tr.dataset.deliveryid);
+            const sisa = Number(tr.dataset.sisa);
+            const qty = Number(tr.querySelector('.input-qty-site-receive').value);
+            if (qty && qty > 0) {
+              if (qty > sisa) throw new Error(`Qty diterima tidak boleh lebih dari sisa (${sisa}).`);
+              payload.push({ DeliveryID: deliveryId, QtyReceived: qty, ReceivedBy: verifiedId, Notes: notes });
+            }
+          });
+          if (payload.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang diterima.", "fail"); btn.disabled = false; return; }
+
+          const { error: insErr } = await supabaseClient.from('siteReceiving').insert(payload);
+          if (insErr) throw insErr;
+
+          // kalau qty diterima sekarang == sisa (diterima penuh), tandai delivery row itu selesai
+          const fullyReceivedIds = payload.filter(p => {
+            const tr = card.querySelector(`tr[data-deliveryid="${p.DeliveryID}"]`);
+            return tr && Number(tr.dataset.sisa) === p.QtyReceived;
+          }).map(p => p.DeliveryID);
+          if (fullyReceivedIds.length > 0) {
+            await supabaseClient.from('delivery').update({ DeliveredBy: verifiedId, ReceivedDate: new Date().toISOString() }).in('DeliveryID', fullyReceivedIds);
+          }
+
+          showBanner(resultBanner, `✅ Penerimaan barang No. Surat Jalan <strong>${suratJalanNo}</strong> berhasil disimpan oleh ${verifiedNama}.`, "ok");
+          showPendingDeliveries(projCode);
+        } catch (err) {
+          showBanner(resultBanner, "🔴 Gagal menyimpan penerimaan: " + err.message, "fail");
+          btn.disabled = false;
+        }
+      };
+
       listWrap.appendChild(card);
     });
   } catch (e) {
@@ -824,28 +909,6 @@ async function showPendingDeliveries(projCode) {
     showBanner(resultBanner, "🔴 Gagal memuat daftar kiriman: " + e.message, "fail");
   }
 }
-
-document.getElementById('btnConfirmReceive').onclick = async () => {
-  if (!selectedSuratJalan) { showBanner(resultBanner, "🔴 Pilih salah satu kiriman dulu.", "fail"); return; }
-
-  const btn = document.getElementById('btnConfirmReceive');
-  btn.disabled = true;
-  try {
-    const { error } = await supabaseClient
-      .from('delivery')
-      .update({ DeliveredBy: verifiedId, ReceivedDate: new Date().toISOString() })
-      .eq('SuratJalanNo', selectedSuratJalan)
-      .is('DeliveredBy', null);
-    if (error) throw error;
-
-    document.getElementById('pendingCard').style.display = "none";
-    showBanner(resultBanner, `✅ Kiriman No. Surat Jalan <strong>${selectedSuratJalan}</strong> berhasil dikonfirmasi diterima oleh ${verifiedNama}.`, "ok");
-  } catch (e) {
-    showBanner(resultBanner, "🔴 Gagal konfirmasi penerimaan: " + e.message, "fail");
-  } finally {
-    btn.disabled = false;
-  }
-};
 </script>
 </body>
 </html>
