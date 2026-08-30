@@ -14,13 +14,41 @@ function clearSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
-// Author di PasswordTbl bisa berisi lebih dari satu role dipisah koma, cth "Request, Receive"
+// Author di PasswordTbl bisa berisi lebih dari satu role dipisah koma, cth "Request, Receive".
+// Sekarang juga menerima bentuk project-scoped "Request 101" (persis pola "Pengirim/Penerima
+// barang <kode>" di halaman scan wajah) -- dianggap tetap punya akses ke menu "Request", cuma
+// dibatasi ke project tertentu (lihat getAuthorizedProjects).
 function isAuthorized(authorField, required) {
   if (!authorField) return false;
+  const requiredLower = required.toLowerCase();
+  const scopedRe = new RegExp(`^${requiredLower}\\s+\\d+$`, "i");
   return String(authorField)
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .includes(required.toLowerCase());
+    .some((tag) => tag === requiredLower || scopedRe.test(tag));
+}
+
+// Ambil daftar Project ID yang di-scope ke user ini untuk menu tertentu, dari pola
+// "<menuName> <projectId>" di kolom Author (cth "Request 101, Request 102").
+// - null   = user punya tag polos "<menuName>" tanpa angka -> gak dibatasi, akses semua project
+// - [...]  = user cuma punya tag project-scoped -> dibatasi ke project-project itu saja
+// - []     = gak ada tag yang cocok sama sekali (harusnya sudah keblok di requireAuth duluan)
+function getAuthorizedProjects(authorField, menuName) {
+  if (!authorField) return [];
+  const menuLower = menuName.toLowerCase();
+  const scopedRe = new RegExp(`^${menuLower}\\s+(\\d+)$`, "i");
+  const tags = String(authorField).split(",").map((s) => s.trim());
+
+  let hasUnscoped = false;
+  const projects = [];
+  tags.forEach((tag) => {
+    const m = tag.match(scopedRe);
+    if (m) projects.push(Number(m[1]));
+    else if (tag.toLowerCase() === menuLower) hasUnscoped = true;
+  });
+
+  if (hasUnscoped) return null;
+  return projects;
 }
 
 // ==== Fetch data karyawan + password (dengan cache session, sekali per sesi browser) ====
