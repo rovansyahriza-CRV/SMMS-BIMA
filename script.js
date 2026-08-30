@@ -25,6 +25,27 @@ function getCurrentUser() {
   return { id: currentSession ? currentSession.id : "", name: currentSession ? currentSession.nama : "—" };
 }
 
+// ==== Project ID otomatis dari Author (pola "Request <projectId>", cth "Request 101") ====
+// - 1 project cocok  -> field dikunci (readonly), gak perlu diketik manual lagi
+// - >1 project cocok -> jadi dropdown pilihan, gak bisa ketik bebas
+// - gak ada tag project-scoped sama sekali (cuma tag polos "Request", biasa dipakai HO)
+//   -> tetap free text seperti sebelumnya, gak dibatasi
+function setupProjectIdField() {
+  const wrap = document.getElementById("projectIdWrap");
+  const author = currentSession ? currentSession.author : "";
+  const allowed = getAuthorizedProjects(author, "Request");
+
+  if (Array.isArray(allowed) && allowed.length === 1) {
+    wrap.innerHTML = `<input type="text" id="projectId" value="${allowed[0]}" readonly>`;
+  } else if (Array.isArray(allowed) && allowed.length > 1) {
+    const options = allowed.map((p) => `<option value="${p}">${p}</option>`).join("");
+    wrap.innerHTML = `<select id="projectId" required>${options}</select>`;
+  }
+  // else: null (akses semua project) atau [] -> biarkan input free-text bawaan HTML, gak diubah
+
+  els.projectId = document.getElementById("projectId");
+}
+
 // ==== load resources (cache di memori + sessionStorage, dipakai lintas baris) ====
 async function loadResourceItems(group) {
   if (resourceCache[group]) return resourceCache[group];
@@ -402,5 +423,6 @@ function showMsg(text, type) {
   if (els.requestByLabel) {
     els.requestByLabel.textContent = user.name;
   }
+  setupProjectIdField();
   addRequestRow();
 })();
