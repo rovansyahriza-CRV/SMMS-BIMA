@@ -592,10 +592,10 @@ async function loadAvailableMaterial(projCode) {
     // (ItemGroup gak disimpan di rfqDetail, jadi harus ambil dari request-nya langsung)
     const rfqDetailIds = [...new Set(Object.values(grouped).map(g => g.RFQDetailID).filter(Boolean))];
     if (rfqDetailIds.length > 0) {
-      const { data: rfqDetails, error: rfqErr } = await supabaseClient.from('rfqDetail').select('rfqDetailID, ItemID, RequestID').in('rfqDetailID', rfqDetailIds);
+      const { data: rfqDetails, error: rfqErr } = await supabaseClient.from('rfqDetail').select('RFQDetailID, ItemID, RequestID').in('RFQDetailID', rfqDetailIds);
       if (rfqErr) throw rfqErr;
       const rfqDetailMap = {};
-      (rfqDetails || []).forEach(r => rfqDetailMap[r.rfqDetailID] = r);
+      (rfqDetails || []).forEach(r => rfqDetailMap[r.RFQDetailID] = r);
 
       const requestIds = [...new Set((rfqDetails || []).map(r => r.RequestID).filter(Boolean))];
       let requestGroupMap = {};
