@@ -46,6 +46,8 @@
   .req-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; cursor:pointer; }
   .req-head h4 { margin:0 0 4px; font-size:14px; color:var(--steel); }
   .req-head p { margin:0; font-size:12px; color:var(--text-muted); }
+  .report-link { font-size:12px; font-weight:600; color:var(--steel-light); text-decoration:none; }
+  .report-link:hover { color:var(--steel); text-decoration:underline; }
   .stage-badge { flex-shrink:0; font-size:10px; font-weight:700; padding:5px 10px; border-radius:999px; white-space:nowrap; }
   .stage-badge.ok { background:var(--success-bg); color:var(--success); }
   .stage-badge.info { background:#E7ECFB; color:var(--steel); }
@@ -191,7 +193,7 @@ async function loadMonitoring() {
   resultBanner.style.display = "none";
   try {
     let reqQuery = supabaseClient.from('request')
-      .select('ID, WO_NO, RefNo, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID')
+      .select('ID, WO_NO, RefNo, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID, ReportURL')
       .order('DATE_REQUEST', { ascending: false });
     if (scopeFilter !== null && scopeFilter !== undefined) reqQuery = reqQuery.eq('PROJECTID', scopeFilter);
     const { data: reqRows, error: reqErr } = await reqQuery;
@@ -383,6 +385,7 @@ async function loadMonitoring() {
         ProjectID: req.PROJECTID,
         QtyRequested: Number(req.QTY || 0),
         Unit: req.UNIT,
+        ReportURL: req.ReportURL || '',
         rfq: { exists: rfqExists, ids: rfqIds },
         po: { exists: poExists, qty: qtyPO, label: poDocLabel, gapQty: qtyGap, gapLabel: vendorGapLabel },
         vendorReceiving: { qty: qtyVendorReceived },
@@ -495,6 +498,7 @@ function renderMonitoring() {
           <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}</h4>
           <p>No. Request: ${it.RefNo || '-'} · WO: ${it.WO_NO || '-'} · Project ${it.ProjectID != null ? it.ProjectID : '-'}</p>
           <p>Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
+          ${it.ReportURL ? `<p><a href="${it.ReportURL}" target="_blank" rel="noopener" class="report-link" onclick="event.stopPropagation()">📄 Lihat Report Request</a></p>` : ''}
         </div>
         <span class="stage-badge ${it.stage.cls}">${it.stage.label}</span>
       </div>
