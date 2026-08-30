@@ -58,6 +58,19 @@
   .stage-row .stage-body b { color:var(--text); }
   .stage-row .stage-body .sub { color:var(--text-muted); font-size:11.5px; }
   footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px; line-height:1.5; }
+  .tab-chip { font-size:13px; padding:8px 16px; }
+  .stock-group-header { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--steel-light); margin:16px 0 8px; }
+  .stock-item-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); }
+  .stock-item-card h4 { margin:0 0 8px; font-size:14px; color:var(--steel); }
+  .stock-metrics { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+  .stock-metric { flex:1; min-width:100px; border-radius:10px; padding:8px 10px; text-align:center; }
+  .stock-metric .n { font-size:17px; font-weight:700; }
+  .stock-metric .l { font-size:10px; text-transform:uppercase; letter-spacing:.03em; }
+  .stock-metric.process { background:var(--warn-bg); } .stock-metric.process .n,.stock-metric.process .l { color:var(--warn); }
+  .stock-metric.onhand { background:#E7ECFB; } .stock-metric.onhand .n,.stock-metric.onhand .l { color:var(--steel); }
+  .stock-metric.handed { background:var(--success-bg); } .stock-metric.handed .n,.stock-metric.handed .l { color:var(--success); }
+  .stock-site-list { font-size:12px; color:var(--text-muted); }
+  .stock-site-list span { display:inline-block; margin-right:12px; }
 </style>
 </head>
 <body>
@@ -66,7 +79,7 @@
   <div class="brand-row">
     <div>
       <div class="eyebrow">SMMS-BIMA</div>
-      <h1 class="title">Item Monitoring</h1>
+      <h1 class="title">Monitoring Barang</h1>
     </div>
     <div style="text-align:right;">
       <button id="btnRefresh" class="btn-secondary">🔄 Refresh</button>
@@ -76,23 +89,37 @@
 
   <div id="resultBanner"></div>
 
-  <div class="card">
-    <div class="filter-row">
-      <select id="projectFilter"><option value="__all__">Semua Project</option></select>
-      <input type="text" id="monitoringSearch" placeholder="Cari No. WO atau nama item...">
-    </div>
+  <div class="card" style="padding-bottom:10px;">
+    <select id="projectFilter" style="margin-bottom:10px;"><option value="__all__">Semua Project</option></select>
     <div>
-      <span class="chip active" data-filter="all">Semua</span>
-      <span class="chip" data-filter="progress">Sedang Berjalan</span>
-      <span class="chip" data-filter="done">Selesai</span>
+      <span class="chip tab-chip active" data-tab="proses">📋 Status Proses</span>
+      <span class="chip tab-chip" data-tab="stok">📦 Laporan Stok</span>
     </div>
   </div>
 
-  <div id="summaryRow" class="summary-row"></div>
+  <div id="tabProses">
+    <div class="card">
+      <div class="filter-row">
+        <input type="text" id="monitoringSearch" placeholder="Cari No. WO atau nama item...">
+      </div>
+      <div>
+        <span class="chip active" data-filter="all">Semua</span>
+        <span class="chip" data-filter="progress">Sedang Berjalan</span>
+        <span class="chip" data-filter="done">Selesai</span>
+      </div>
+    </div>
 
-  <div id="monitoringListWrap"></div>
+    <div id="summaryRow" class="summary-row"></div>
 
-  <footer class="hint">Klik salah satu baris untuk lihat rincian tiap tahap (RFQ, PO, terima vendor, kirim site, terima site, serah terima end user). Halaman ini bisa diakses siapa saja, tanpa login.</footer>
+    <div id="monitoringListWrap"></div>
+  </div>
+
+  <div id="tabStok" style="display:none;">
+    <div id="stockSummaryRow" class="summary-row"></div>
+    <div id="stockReportListWrap"></div>
+  </div>
+
+  <footer class="hint">Klik salah satu baris untuk lihat rincian. Halaman ini bisa diakses siapa saja, tanpa login.</footer>
 </div>
 
 <script>
@@ -102,8 +129,10 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let scopeFilter = null;   // null = semua project, number = 1 project (dari dropdown)
 let pipelineData = [];    // hasil akhir per baris request, siap dirender
+let stockReportData = []; // hasil akumulasi per item (Laporan Stok), diisi bareng pipelineData
 let activeFilter = "all";
 let searchQuery = "";
+let activeTab = "proses"; // "proses" | "stok"
 
 const resultBanner = document.getElementById('resultBanner');
 function showBanner(el, text, kind) { el.style.display = "block"; el.className = "banner-" + kind; el.innerHTML = text; }
@@ -268,7 +297,8 @@ async function loadMonitoring() {
     const euByDelivery = {};
     allSiteRecvRows.forEach(r => { euByDelivery[r.DeliveryID] = (euByDelivery[r.DeliveryID] || 0) + (euByReceiving[r.ReceivingID] || 0); });
 
-    // ============ Rakit hasil akhir per baris Request ============
+    // ============ Rakit hasil akhir per baris Request (+ akumulasi Laporan Stok bareng jalan) ============
+    const stockMap = {}; // key -> {ItemGroup, ItemID, ItemDescription, Unit, totalRequested, totalOnHand, totalHandedOver, siteOnHand:{site:qty}}
     pipelineData = reqRows.map(req => {
       const rfqRows = rfqByRequest[req.ID] || [];
       const rfqExists = rfqRows.length > 0;
@@ -320,6 +350,23 @@ async function loadMonitoring() {
       const qtySiteReceived = deliveries.reduce((s, d) => s + (srByDelivery[d.DeliveryID] || 0), 0);
       const qtyEndUser = deliveries.reduce((s, d) => s + (euByDelivery[d.DeliveryID] || 0), 0);
 
+      // -- akumulasi ke Laporan Stok: sedang proses order / OnHand di site (per site) / sudah handover --
+      const stockKey = req.ItemID != null ? `${req.ItemGroup || ''}::${req.ItemID}` : `desc::${(req.ItemDescription || '').trim().toLowerCase()}`;
+      if (!stockMap[stockKey]) {
+        stockMap[stockKey] = { ItemGroup: req.ItemGroup, ItemID: req.ItemID, ItemDescription: req.ItemDescription, Unit: req.UNIT, totalRequested: 0, totalOnHand: 0, totalHandedOver: 0, siteOnHand: {} };
+      }
+      const sm = stockMap[stockKey];
+      sm.totalRequested += qtyRequestedNum;
+      sm.totalHandedOver += qtyEndUser;
+      deliveries.forEach(d => {
+        const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDelivery[d.DeliveryID] || 0);
+        if (onHandHere > 0) {
+          sm.totalOnHand += onHandHere;
+          const site = d.DestinationSite || '-';
+          sm.siteOnHand[site] = (sm.siteOnHand[site] || 0) + onHandHere;
+        }
+      });
+
       const item = {
         RequestID: req.ID,
         RefNo: req.RefNo,
@@ -342,8 +389,15 @@ async function loadMonitoring() {
       return item;
     });
 
+    stockReportData = Object.values(stockMap).map(sm => ({
+      ...sm,
+      code: itemCode(sm.ItemGroup, sm.ItemID),
+      totalInProcess: Math.max(0, sm.totalRequested - sm.totalOnHand - sm.totalHandedOver)
+    }));
+
     renderMonitoring();
     renderSummary();
+    renderStockReport();
     updateRefreshedLabel();
   } catch (e) {
     listWrap.innerHTML = '';
@@ -382,12 +436,23 @@ function renderSummary() {
 
 // ============ 2. Render list + filter/search ============
 document.getElementById('monitoringSearch').addEventListener('input', (e) => { searchQuery = e.target.value; renderMonitoring(); });
-document.querySelectorAll('.chip').forEach(chip => {
+document.querySelectorAll('.chip:not(.tab-chip)').forEach(chip => {
   chip.addEventListener('click', () => {
-    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.chip:not(.tab-chip)').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     activeFilter = chip.dataset.filter;
     renderMonitoring();
+  });
+});
+
+// ============ Tab switch: Status Proses <-> Laporan Stok ============
+document.querySelectorAll('.tab-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.tab-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeTab = chip.dataset.tab;
+    document.getElementById('tabProses').style.display = activeTab === 'proses' ? 'block' : 'none';
+    document.getElementById('tabStok').style.display = activeTab === 'stok' ? 'block' : 'none';
   });
 });
 
@@ -462,6 +527,64 @@ function stageRowHtml(title, done, mainText, subText) {
 function deliverySubLabel(list) {
   if (!list || list.length === 0) return '';
   return list.map(d => `${d.DestinationSite || '-'} · No. SJ ${d.SuratJalanNo || '-'}`).join('<br>');
+}
+
+// ============ 3. Laporan Stok -- akumulasi per item: Sedang Proses Order / OnHand di Site / Sudah Handover ============
+function renderStockSummary() {
+  const el = document.getElementById('stockSummaryRow');
+  const totalProcess = stockReportData.reduce((s, sm) => s + sm.totalInProcess, 0);
+  const totalOnHand = stockReportData.reduce((s, sm) => s + sm.totalOnHand, 0);
+  const totalHanded = stockReportData.reduce((s, sm) => s + sm.totalHandedOver, 0);
+  el.innerHTML = `
+    <div class="summary-tile"><div class="num">${stockReportData.length}</div><div class="lbl">Jenis Item</div></div>
+    <div class="summary-tile"><div class="num">${totalProcess}</div><div class="lbl">Sedang Proses Order</div></div>
+    <div class="summary-tile"><div class="num">${totalOnHand}</div><div class="lbl">OnHand di Site</div></div>
+    <div class="summary-tile"><div class="num">${totalHanded}</div><div class="lbl">Sudah Handover</div></div>
+  `;
+}
+
+function renderStockReport() {
+  renderStockSummary();
+  const wrap = document.getElementById('stockReportListWrap');
+  if (stockReportData.length === 0) {
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Belum ada data stok untuk cakupan ini.</p>';
+    return;
+  }
+
+  const byGroup = {};
+  stockReportData.forEach(sm => {
+    const g = sm.ItemGroup || 'Lainnya';
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(sm);
+  });
+
+  wrap.innerHTML = '';
+  Object.keys(byGroup).sort().forEach(groupName => {
+    const header = document.createElement('div');
+    header.className = 'stock-group-header';
+    header.textContent = groupName;
+    wrap.appendChild(header);
+
+    byGroup[groupName].sort((a, b) => (a.ItemDescription || '').localeCompare(b.ItemDescription || '')).forEach(sm => {
+      const siteEntries = Object.entries(sm.siteOnHand).filter(([, qty]) => qty > 0);
+      const siteHtml = siteEntries.length > 0
+        ? siteEntries.map(([site, qty]) => `<span>📍 ${site}: <b>${qty}</b> ${sm.Unit || ''}</span>`).join('')
+        : '<span>Tidak ada stok di site mana pun saat ini</span>';
+
+      const card = document.createElement('div');
+      card.className = 'stock-item-card';
+      card.innerHTML = `
+        <h4>${sm.code ? '[' + sm.code + '] ' : ''}${sm.ItemDescription || '-'}</h4>
+        <div class="stock-metrics">
+          <div class="stock-metric process"><div class="n">${sm.totalInProcess}</div><div class="l">Proses Order</div></div>
+          <div class="stock-metric onhand"><div class="n">${sm.totalOnHand}</div><div class="l">OnHand</div></div>
+          <div class="stock-metric handed"><div class="n">${sm.totalHandedOver}</div><div class="l">Handover</div></div>
+        </div>
+        <div class="stock-site-list">${siteHtml}</div>
+      `;
+      wrap.appendChild(card);
+    });
+  });
 }
 
 // ============ Load langsung begitu halaman dibuka -- tanpa login/scan, publik ============
