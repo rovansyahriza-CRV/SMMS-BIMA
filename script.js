@@ -20,8 +20,32 @@ const els = {
 // ==== auth guard ====
 const currentSession = requireAuth("Request");
 
+// Kode "GROUP-ID" buat identifikasi item di report PDF (sama persis pola yang dipakai di
+// end-user-receiving.html / monitoring.html).
+function groupPrefix(group) {
+  if (!group) return 'ITEM';
+  const known = {
+    consumables: 'CONS', consumable: 'CONS',
+    material: 'MAT', materials: 'MAT',
+    tools: 'TOOL', tool: 'TOOL',
+    heavyequipment: 'HE',
+    serviceorder: 'SO'
+  };
+  const key = String(group).toLowerCase().replace(/\s+/g, '');
+  if (known[key]) return known[key];
+  const letters = String(group).replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase();
+  return letters || 'ITEM';
+}
+function itemCode(m) {
+  return m.ItemID != null ? `${groupPrefix(m.ItemGroup)}-${m.ItemID}` : null;
+}
+
 function getCurrentUser() {
-  return { id: currentSession ? currentSession.id : "", name: currentSession ? currentSession.nama : "—" };
+  return {
+    id: currentSession ? currentSession.id : "",
+    name: currentSession ? currentSession.nama : "—",
+    qrCodeId: currentSession ? currentSession.qrCodeId : "",
+  };
 }
 
 // ==== Project ID otomatis dari PIC (pola "Request <projectId>", cth "Request 101") ====
@@ -398,6 +422,34 @@ async function handleBatchSubmitRequest(e) {
     if (error) throw error;
 
     showMsg(`Berhasil! ${payloadToInsert.length} item terkirim dengan No. Referensi ${generatedRefNo}.`, "success");
+
+    // Generate & upload report PDF -- dibungkus try/catch sendiri: kalau ini gagal, request-nya
+    // TETAP TERKIRIM (udah di-insert di atas), cuma reportnya aja yang gak kebuat. Ini versi
+    // "bukti pengajuan" -- begitu di-approve di alur approval, reportnya BELUM otomatis
+    // diperbarui (approval terjadi di desktop app, di luar jangkauan halaman ini).
+    try {
+      els.submitBtn.textContent = "Membuat report PDF...";
+      const pdfDoc = await generateRequestReportPdf({
+        refNo: generatedRefNo,
+        woNo: headerData.woNo,
+        projectId: headerData.projectId,
+        tanggalRequest: new Date(today).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }),
+        diajukanOleh: user.name,
+        diajukanOlehSub: "",
+        diajukanOlehQr: `QrCodeID=${user.qrCodeId}|NoTransaksi=${generatedRefNo}`,
+        status: "Menunggu Review",
+        keperluan: headerData.purpose,
+        items: itemsData.map((it) => ({ kode: itemCode(it) || (it.ItemGroup || ""), desk: it.ItemDescription, qty: it.QTY, unit: it.UNIT })),
+        approvalHistory: [{ tanggal: new Date().toLocaleString("id-ID"), oleh: user.name, keterangan: "Request diajukan" }],
+        disetujuiOleh: null,
+      });
+      const pdfBlob = reportPdfToBlob(pdfDoc);
+      const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${generatedRefNo.replace(/\//g, "-")}.pdf`);
+      await supabaseClient.from("request").update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq("RefNo", generatedRefNo);
+      showMsg(`Berhasil! ${payloadToInsert.length} item terkirim dengan No. Referensi ${generatedRefNo}. Report PDF juga sudah dibuat.`, "success");
+    } catch (reportErr) {
+      console.warn("Gagal membuat/upload report PDF:", reportErr);
+    }
 
     els.form.reset();
     els.itemRowsBody.innerHTML = "";
