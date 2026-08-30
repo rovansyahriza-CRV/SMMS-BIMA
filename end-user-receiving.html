@@ -581,36 +581,19 @@ async function loadAvailableMaterial(projCode) {
     });
     Object.values(grouped).forEach(g => g.breakdown.sort((a, b) => a.ReceivingID - b.ReceivingID));
 
+    // ItemGroup + ItemID sekarang udah didenormalisasi langsung di purchaseOrderDetail (lewat trigger
+    // di database), jadi tinggal select 1 kali aja -- gak perlu join manual ke rfqDetail/request lagi.
     const podetailIds = Object.keys(grouped).map(Number);
-    const { data: details, error: detErr } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit, RFQDetailID').in('PODetailID', podetailIds);
+    const { data: details, error: detErr } = await supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit, ItemGroup, ItemID').in('PODetailID', podetailIds);
     if (detErr) throw detErr;
     (details || []).forEach(d => {
-      if (grouped[d.PODetailID]) { grouped[d.PODetailID].ItemDescription = d.ItemDescription; grouped[d.PODetailID].Unit = d.Unit; grouped[d.PODetailID].RFQDetailID = d.RFQDetailID; }
-    });
-
-    // tarik ItemID + ItemGroup dari katalog asli, ditelusuri balik: purchaseOrderDetail -> rfqDetail -> request
-    // (ItemGroup gak disimpan di rfqDetail, jadi harus ambil dari request-nya langsung)
-    const rfqDetailIds = [...new Set(Object.values(grouped).map(g => g.RFQDetailID).filter(Boolean))];
-    if (rfqDetailIds.length > 0) {
-      const { data: rfqDetails, error: rfqErr } = await supabaseClient.from('rfqDetail').select('RFQDetailID, ItemID, RequestID').in('RFQDetailID', rfqDetailIds);
-      if (rfqErr) throw rfqErr;
-      const rfqDetailMap = {};
-      (rfqDetails || []).forEach(r => rfqDetailMap[r.RFQDetailID] = r);
-
-      const requestIds = [...new Set((rfqDetails || []).map(r => r.RequestID).filter(Boolean))];
-      let requestGroupMap = {};
-      if (requestIds.length > 0) {
-        const { data: reqRows, error: reqErr2 } = await supabaseClient.from('request').select('ID, ItemGroup').in('ID', requestIds);
-        if (reqErr2) throw reqErr2;
-        (reqRows || []).forEach(r => requestGroupMap[r.ID] = r.ItemGroup);
+      if (grouped[d.PODetailID]) {
+        grouped[d.PODetailID].ItemDescription = d.ItemDescription;
+        grouped[d.PODetailID].Unit = d.Unit;
+        grouped[d.PODetailID].ItemGroup = d.ItemGroup || 'Lainnya';
+        grouped[d.PODetailID].ItemID = d.ItemID;
       }
-
-      Object.values(grouped).forEach(g => {
-        const rd = rfqDetailMap[g.RFQDetailID];
-        g.ItemID = rd ? rd.ItemID : null;
-        g.ItemGroup = (rd && requestGroupMap[rd.RequestID]) || 'Lainnya';
-      });
-    }
+    });
 
     materialList = Object.values(grouped).filter(g => g.ItemDescription);
     renderMaterialList('');
@@ -621,8 +604,29 @@ async function loadAvailableMaterial(projCode) {
 
 document.getElementById('materialSearch').addEventListener('input', (e) => renderMaterialList(e.target.value));
 
+// singkatan per ItemGroup buat kode item yang gak ambigu kalau disebutin/ditulis di lapangan
+// (ID di tabel katalog kayak consumables/material/tools cuma unik DI DALAM tabelnya masing-masing,
+// jadi kodenya digabung: "CONS-42", "MAT-15", dst -- bukan cuma angka polos).
+function groupPrefix(group) {
+  if (!group) return 'ITEM';
+  const known = {
+    consumables: 'CONS', consumable: 'CONS',
+    material: 'MAT', materials: 'MAT',
+    tools: 'TOOL', tool: 'TOOL',
+    heavyequipment: 'HE',
+    serviceorder: 'SO'
+  };
+  const key = String(group).toLowerCase().replace(/\s+/g, '');
+  if (known[key]) return known[key];
+  const letters = String(group).replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase();
+  return letters || 'ITEM';
+}
+function itemCode(m) {
+  return m.ItemID != null ? `${groupPrefix(m.ItemGroup)}-${m.ItemID}` : null;
+}
+
 // tampilan stok dikelompokkan per ItemGroup (Material/Consumables/Tools/dst), tiap item nunjukin
-// kode ItemID-nya biar gampang diidentifikasi di lapangan pas milih barang yang mau diserahkan.
+// kode "GROUP-ID"-nya biar gampang diidentifikasi & disebutin di lapangan pas milih barang.
 function renderMaterialList(filterQuery) {
   const resultsEl = document.getElementById('materialResults');
   if (materialList.length === 0) {
@@ -632,7 +636,7 @@ function renderMaterialList(filterQuery) {
 
   const q = (filterQuery || '').trim().toLowerCase();
   const filtered = q
-    ? materialList.filter(m => (m.ItemDescription || '').toLowerCase().includes(q) || (m.ItemID != null && String(m.ItemID).toLowerCase().includes(q)))
+    ? materialList.filter(m => (m.ItemDescription || '').toLowerCase().includes(q) || (itemCode(m) && itemCode(m).toLowerCase().includes(q)))
     : materialList;
 
   if (filtered.length === 0) {
@@ -658,7 +662,8 @@ function renderMaterialList(filterQuery) {
       const row = document.createElement('div');
       row.className = 'pending-card';
       row.style.cursor = 'pointer';
-      row.innerHTML = `<h4>${m.ItemID != null ? '[' + m.ItemID + '] ' : ''}${m.ItemDescription}</h4><p>Tersedia: ${m.total} ${m.Unit || ''}</p>`;
+      const code = itemCode(m);
+      row.innerHTML = `<h4>${code ? '[' + code + '] ' : ''}${m.ItemDescription}</h4><p>Tersedia: ${m.total} ${m.Unit || ''}</p>`;
       row.onclick = () => addToCart(m);
       resultsEl.appendChild(row);
     });
@@ -671,7 +676,7 @@ function addToCart(material) {
     showBanner(resultBanner, "🟡 Item ini udah ada di daftar serah terima.", "warn");
     return;
   }
-  cart.push({ PODetailID: material.PODetailID, ItemDescription: material.ItemDescription, Unit: material.Unit, total: material.total, breakdown: material.breakdown, qty: 0 });
+  cart.push({ PODetailID: material.PODetailID, ItemDescription: material.ItemDescription, ItemGroup: material.ItemGroup, ItemID: material.ItemID, Unit: material.Unit, total: material.total, breakdown: material.breakdown, qty: 0 });
   renderCart();
 }
 
@@ -680,9 +685,10 @@ function renderCart() {
   if (cart.length === 0) { wrapEl.innerHTML = ''; return; }
   let rowsHtml = '';
   cart.forEach((c, idx) => {
+    const code = itemCode(c);
     rowsHtml += `
       <tr data-idx="${idx}" data-total="${c.total}">
-        <td>${c.ItemDescription}</td>
+        <td>${code ? '[' + code + '] ' : ''}${c.ItemDescription}</td>
         <td style="text-align:center;">${c.total} ${c.Unit || ''}</td>
         <td>
           <div style="display:flex; align-items:center; gap:6px;">
@@ -755,7 +761,7 @@ async function submitHandover() {
     if (error) throw error;
 
     statusEl.style.display = "none";
-    const summary = cart.filter(c => c.qty > 0).map(c => `${c.ItemDescription} — ${c.qty} ${c.Unit || ''}`).join('<br>');
+    const summary = cart.filter(c => c.qty > 0).map(c => { const code = itemCode(c); return `${code ? '[' + code + '] ' : ''}${c.ItemDescription} — ${c.qty} ${c.Unit || ''}`; }).join('<br>');
     showBanner(resultBanner, `✅ Barang berhasil diserahkan ke <strong>${recipientNama}</strong> oleh storeman ${verifiedNama}:<br>${summary}`, "ok");
 
     cart = [];
