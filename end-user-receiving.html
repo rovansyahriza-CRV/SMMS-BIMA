@@ -152,10 +152,12 @@ let matchedLocation = null;
 let matchedLat = null, matchedLng = null; // koordinat GPS mentah, disimpan buat report
 let currentFacingModeFace = "user"; // depan buat storeman login, diganti "environment" pas scan penerima
 
-let pendingKarId = null, pendingKarNama = "";
+let pendingKarId = null, pendingKarNama = "", pendingKarKualifikasi = "";
 let verifiedId = null, verifiedNama = "";       // storeman
 let verifiedQrCodeId = "";                      // snapshot QrCodeId storeman (qrCodeId global ke-overwrite pas scan penerima)
+let verifiedKualifikasi = "";                   // snapshot Kualifikasi storeman (dari karyawanTbl, sama alasannya kayak verifiedQrCodeId)
 let recipientId = null, recipientNama = "";     // end user yang nerima barang
+let recipientKualifikasi = "";                  // Kualifikasi end user (dari karyawanTbl)
 
 let materialList = [];
 let cart = [];
@@ -297,6 +299,7 @@ async function proceedWithQr() {
     if (!karRow) { setStatus("❌ Karyawan tidak ditemukan untuk QR ini.", "fail"); showRetry(); return; }
     pendingKarId = karRow.id;
     pendingKarNama = karRow.nama;
+    pendingKarKualifikasi = karRow.kualifikasi || "";
   } catch (e) {
     setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail"); showRetry(); return;
   }
@@ -393,6 +396,7 @@ btnScanFace.onclick = async () => {
       if (!karRow) { setStatus("❌ Karyawan tidak ditemukan.", "fail"); btnScanFace.disabled = false; return; }
       pendingKarId = karRow.id;
       pendingKarNama = karRow.nama;
+      pendingKarKualifikasi = karRow.kualifikasi || "";
     } catch (e) {
       setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
       btnScanFace.disabled = false;
@@ -427,12 +431,14 @@ function finalizeVerification() {
     verifiedId = pendingKarId;
     verifiedNama = pendingKarNama;
     verifiedQrCodeId = qrCodeId;
+    verifiedKualifikasi = pendingKarKualifikasi;
     matchInfoEl.style.display = "block";
     matchInfoEl.innerHTML = `✅ Terverifikasi: ${verifiedNama}`;
     resolveAccessAndProceed();
   } else {
     recipientId = pendingKarId;
     recipientNama = pendingKarNama;
+    recipientKualifikasi = pendingKarKualifikasi;
     submitHandover();
   }
 }
@@ -820,10 +826,10 @@ async function submitHandover() {
         tanggalSerahTerima: new Date().toLocaleString('id-ID'),
         projectId: projectCode,
         diserahkanOleh: verifiedNama,
-        diserahkanOlehSub: 'Storeman — ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
+        diserahkanOlehSub: (verifiedKualifikasi || 'Storeman') + ' — ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
         diserahkanOlehQr: `QrCodeID=${verifiedQrCodeId}|NoTransaksi=${noTrx}`,
         diterimaOleh: recipientNama,
-        diterimaOlehSub: 'End User',
+        diterimaOlehSub: recipientKualifikasi || 'End User',
         diterimaOlehQr: `QrCodeID=${qrCodeId}|NoTransaksi=${noTrx}`,
         lokasiNama: matchedLocation ? matchedLocation.namalokasi : null,
         items,
