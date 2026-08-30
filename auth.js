@@ -101,6 +101,7 @@ async function login(id, password) {
     author: pw.Author || "",
     pic: pw.pic || pw.PIC || "",
     qrCodeId: karyawanRow ? (karyawanRow.QrCodeId || karyawanRow.QrCodeID || "") : "",
+    kualifikasi: karyawanRow ? (karyawanRow.Kualifikasi || "") : "",
   };
 
   setSession(session);
@@ -123,6 +124,7 @@ async function bypassAuthFromBadge() {
       author: pw.Author || "",
       pic: pw.pic || pw.PIC || "",
       qrCodeId: karyawanRow ? (karyawanRow.QrCodeId || karyawanRow.QrCodeID || "") : "",
+      kualifikasi: karyawanRow ? (karyawanRow.Kualifikasi || "") : "",
     });
     return true;
   } catch (e) {
