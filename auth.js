@@ -51,38 +51,55 @@ function getAuthorizedProjects(authorField, menuName) {
   return projects;
 }
 
-// ==== Fetch data karyawan + password (dengan cache session, sekali per sesi browser) ====
-async function fetchKaryawanSheet(sheet) {
-  const cacheKey = `karyawan_${sheet}`;
-  const cached = sessionStorage.getItem(cacheKey);
-  if (cached) return JSON.parse(cached);
-
-  const res = await fetch(`${KARYAWAN_URL}?sheet=${encodeURIComponent(sheet)}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-
-  sessionStorage.setItem(cacheKey, JSON.stringify(data));
+// ==== Fetch data karyawan + password langsung dari Supabase (paswordTbl / karyawanTbl) ====
+async function fetchPasswordRow(id) {
+  const { data, error } = await supabaseClient
+    .from("paswordTbl")
+    .select("*")
+    .eq("Id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 
-// ==== Login: cocokkan Id + Password ke PasswordTbl, ambil nama dari KaryawanTbl ====
-async function login(id, password) {
-  const [passwords, karyawan] = await Promise.all([
-    fetchKaryawanSheet("PasswordTbl"),
-    fetchKaryawanSheet("KaryawanTbl"),
-  ]);
+async function fetchKaryawanRow(id) {
+  const { data, error } = await supabaseClient
+    .from("karyawanTbl")
+    .select("*")
+    .eq("Id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
 
-  const pw = passwords.find((p) => String(p.Id) === String(id));
+async function fetchAllKaryawan() {
+  const { data, error } = await supabaseClient.from("karyawanTbl").select("*");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+// Nama kolom "nama" di karyawanTbl belum dikonfirmasi persis casing-nya -- coba beberapa
+// kemungkinan umum dulu sebelum jatuh ke fallback "User #id", biar gak putus kalau ternyata
+// beda dari dugaan.
+function karyawanName(row, id) {
+  if (!row) return `User #${id}`;
+  return row.NamaPersonnel || row.Nama || row.NamaKaryawan || row.Name || row.nama || `User #${id}`;
+}
+
+// ==== Login: cocokkan Id + Password ke paswordTbl, ambil nama dari karyawanTbl ====
+async function login(id, password) {
+  const pw = await fetchPasswordRow(id);
   if (!pw) throw new Error("User tidak ditemukan.");
-  if (pw.IsActive !== true && pw.IsActive !== "TRUE") throw new Error("Akun tidak aktif.");
+  if (pw.IsActive !== true) throw new Error("Akun tidak aktif.");
   if (String(pw.PasswordHas) !== String(password)) throw new Error("Password salah.");
 
-  const karyawanRow = karyawan.find((k) => String(k.Id) === String(id));
+  const karyawanRow = await fetchKaryawanRow(id);
 
   const session = {
     id: pw.Id,
-    nama: karyawanRow ? karyawanRow.NamaPersonnel : `User #${pw.Id}`,
+    nama: karyawanName(karyawanRow, pw.Id),
     author: pw.Author || "",
+    pic: pw.pic || pw.PIC || "",
   };
 
   setSession(session);
@@ -96,17 +113,14 @@ async function bypassAuthFromBadge() {
   if (!bypassId) return false;
 
   try {
-    const [passwords, karyawan] = await Promise.all([
-      fetchKaryawanSheet("PasswordTbl"),
-      fetchKaryawanSheet("KaryawanTbl"),
-    ]);
-    const pw = passwords.find((p) => String(p.Id) === String(bypassId));
+    const pw = await fetchPasswordRow(bypassId);
     if (!pw) return false;
-    const karyawanRow = karyawan.find((k) => String(k.Id) === String(bypassId));
+    const karyawanRow = await fetchKaryawanRow(bypassId);
     setSession({
       id: pw.Id,
-      nama: karyawanRow ? karyawanRow.NamaPersonnel : `User #${pw.Id}`,
+      nama: karyawanName(karyawanRow, pw.Id),
       author: pw.Author || "",
+      pic: pw.pic || pw.PIC || "",
     });
     return true;
   } catch (e) {
@@ -115,7 +129,9 @@ async function bypassAuthFromBadge() {
   }
 }
 
-// ==== Guard: panggil di halaman form (request/received/distribusi) ====
+// ==== Guard: panggil di halaman form (request/received/distribusi/approval) ====
+// Approval divalidasi dari kolom Author (wewenang approval), menu lain dari kolom pic
+// (operator yang berwenang) -- lihat MENU_FIELD di config.js.
 function requireAuth(menuName) {
   const session = getSession();
   if (!session) {
@@ -123,7 +139,9 @@ function requireAuth(menuName) {
     return null;
   }
   const required = MENU_AUTH[menuName];
-  if (required && !isAuthorized(session.author, required)) {
+  const fieldName = (typeof MENU_FIELD !== "undefined" && MENU_FIELD[menuName]) || "author";
+  const fieldValue = fieldName === "pic" ? session.pic : session.author;
+  if (required && !isAuthorized(fieldValue, required)) {
     alert("Anda tidak punya akses ke menu ini.");
     window.location.href = "index.html";
     return null;
@@ -133,8 +151,5 @@ function requireAuth(menuName) {
 
 function logout() {
   clearSession();
-  // hapus cache karyawan supaya data fresh pas login lagi
-  sessionStorage.removeItem("karyawan_PasswordTbl");
-  sessionStorage.removeItem("karyawan_KaryawanTbl");
   window.location.href = "index.html";
 }
