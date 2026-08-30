@@ -158,7 +158,7 @@ async function loadMonitoring() {
   resultBanner.style.display = "none";
   try {
     let reqQuery = supabaseClient.from('request')
-      .select('ID, WO_NO, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, Qty, Unit, Status, PROJECTID')
+      .select('ID, WO_NO, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID')
       .order('DATE_REQUEST', { ascending: false });
     if (scopeFilter !== null && scopeFilter !== undefined) reqQuery = reqQuery.eq('PROJECTID', scopeFilter);
     const { data: reqRows, error: reqErr } = await reqQuery;
@@ -282,8 +282,8 @@ async function loadMonitoring() {
         ItemGroup: req.ItemGroup,
         ItemID: req.ItemID,
         ProjectID: req.PROJECTID,
-        QtyRequested: Number(req.Qty || 0),
-        Unit: req.Unit,
+        QtyRequested: Number(req.QTY || 0),
+        Unit: req.UNIT,
         rfq: { exists: rfqExists, ids: rfqIds },
         po: { exists: poExists, qty: qtyPO, label: poDocLabel },
         vendorReceiving: { qty: qtyVendorReceived },
