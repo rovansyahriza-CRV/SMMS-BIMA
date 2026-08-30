@@ -22,8 +22,8 @@ const supabaseClient = (typeof supabase !== "undefined")
 // ISI DUA VALUE INI setelah kamu deploy Apps Script-nya:
 // - DRIVE_BRIDGE_URL  = URL Web App hasil deploy (https://script.google.com/macros/s/.../exec)
 // - DRIVE_BRIDGE_TOKEN = string yang sama persis dengan Script Property "UPLOAD_TOKEN"
-const DRIVE_BRIDGE_URL = "PASTE_URL_WEB_APP_DISINI";
-const DRIVE_BRIDGE_TOKEN = "PASTE_TOKEN_DISINI";
+const DRIVE_BRIDGE_URL = "https://script.google.com/macros/s/AKfycbwfq5bqNWx0fO9LuEyQasUzkLP91gA8G-rqRKpPOIJ9r7WNN0G_klH8jXxXhY96ArlC/exec";
+const DRIVE_BRIDGE_TOKEN = "bima-2026-x8f2k9";
 
 // Grup yang butuh input durasi sewa (bukan konsumsi habis pakai)
 const RENTAL_GROUPS = ["Tools", "HeavyEquipment"];
