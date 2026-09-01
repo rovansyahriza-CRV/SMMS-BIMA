@@ -178,6 +178,47 @@ const faceGuideHint = document.getElementById('faceGuideHint');
 const btnRetry = document.getElementById('btnRetry');
 let qrScanning = false;
 
+// ============ FACE CACHE HELPERS (Sama persis seperti SmartGate Fusion4) ============
+const CACHE_KEY_FACES = "bima_cached_faces";
+
+async function getCachedFaces() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY_FACES);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed.map(p => ({
+      qrCodeId: p.qrCodeId || p.qrcodeid,
+      nama: p.nama,
+      descriptor: new Float32Array(p.descriptor || p.facecode || [])
+    }));
+  } catch (e) {
+    console.warn("Gagal baca cache wajah:", e);
+    return null;
+  }
+}
+
+async function syncFaceCache() {
+  try {
+    const { data, error } = await supabaseClient.rpc('get_all_face_data');
+    if (error) throw error;
+    if (Array.isArray(data) && data.length > 0) {
+      localStorage.setItem(CACHE_KEY_FACES, JSON.stringify(data));
+      console.log(`✅ Cache wajah tersinkronisasi: ${data.length} personil`);
+    }
+  } catch (e) {
+    console.warn("Gagal sync cache wajah:", e.message);
+  }
+}
+
+function withTimeout(promise, ms, timeoutMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), ms))
+  ]);
+}
+
+
 function showBanner(el, text, kind) { el.style.display = "block"; el.className = "banner-" + kind; el.innerHTML = text; }
 function setStatus(text, kind) { statusEl.style.display = "block"; statusEl.className = kind || ""; statusEl.innerText = text; }
 function showRetry() { btnRetry.style.display = "block"; }
@@ -203,20 +244,31 @@ async function loadFaceModels() {
   await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
   await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
   faceModelsLoaded = true;
+  console.log('TF.js backend aktif:', faceapi.tf ? faceapi.tf.getBackend() : 'default');
 }
 
 async function startFaceOnlyCapture() {
   setStatus("Memuat model wajah...", "info");
   statusEl.style.display = "block";
-  try { await loadFaceModels(); } catch (e) {
+  try { 
+    await withTimeout(loadFaceModels(), 15000, "Timeout memuat model (15 detik). Coba refresh."); 
+  } catch (e) {
     setStatus("❌ Gagal memuat model wajah: " + e.message, "fail"); showRetry(); return;
   }
 
   setStatus("Mengambil data wajah karyawan...", "info");
   try {
-    const { data, error } = await supabaseClient.rpc('get_all_face_data');
-    if (error) throw error;
-    allFaceData = data || [];
+    allFaceData = await getCachedFaces();
+    if (!allFaceData || allFaceData.length === 0) {
+      const { data, error } = await supabaseClient.rpc('get_all_face_data');
+      if (error) throw error;
+      allFaceData = (data || []).map(p => ({
+        qrCodeId: p.qrCodeId || p.qrcodeid,
+        nama: p.nama,
+        descriptor: Array.isArray(p.descriptor) ? new Float32Array(p.descriptor) : (p.descriptor || p.facecode)
+      }));
+      localStorage.setItem(CACHE_KEY_FACES, JSON.stringify(data));
+    }
   } catch (e) {
     setStatus("❌ Gagal ambil data wajah: " + e.message, "fail"); showRetry(); return;
   }
@@ -281,13 +333,12 @@ async function proceedWithQr() {
 
   setStatus("Mengambil data referensi wajah...", "info");
   try {
-    const { data, error } = await supabaseClient.rpc('get_face_descriptor', { p_qrcode: qrCodeId });
+    const { data, error } = await supabaseClient.rpc('get_person_face_data', { p_qrcode: qrCodeId });
     if (error) throw error;
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row || !row.facecode) {
-      setStatus("❌ Wajah belum terdaftar untuk QR ini. Hubungi admin.", "fail"); showRetry(); return;
+    if (!data || !data.valid || !data.hasFaceData || !data.descriptor) {
+      setStatus("❌ Wajah belum terdaftar untuk QR ini (" + qrCodeId + "). Hubungi admin.", "fail"); showRetry(); return;
     }
-    refDescriptor = row.facecode;
+    refDescriptor = Array.isArray(data.descriptor) ? new Float32Array(data.descriptor) : data.descriptor;
   } catch (e) {
     setStatus("❌ Gagal ambil data wajah: " + e.message, "fail"); showRetry(); return;
   }
@@ -366,11 +417,15 @@ btnScanFace.onclick = async () => {
   }
 
   if (matchMode === "1:N") {
-    let sorted = allFaceData.map(p => ({
-      qrcodeid: p.qrcodeid,
-      nama: p.nama,
-      distance: faceapi.euclideanDistance(detection.descriptor, p.facecode)
-    })).sort((a, b) => a.distance - b.distance);
+    let sorted = allFaceData.map(p => {
+      const desc = p.descriptor || p.facecode;
+      const dist = desc ? faceapi.euclideanDistance(detection.descriptor, desc) : 999;
+      return {
+        qrcodeid: p.qrCodeId || p.qrcodeid,
+        nama: p.nama,
+        distance: dist
+      };
+    }).filter(p => !isNaN(p.distance) && p.distance < 900).sort((a, b) => a.distance - b.distance);
 
     const best = sorted[0];
     const secondBest = sorted[1];
@@ -518,13 +573,17 @@ function initGPS() {
       const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
       if (error) throw error;
       const loc = Array.isArray(data) ? data[0] : data;
-      if (!loc || !loc.isinsideradius) {
-        showBanner(locBanner, "🔴 Di luar area site terdaftar" + (loc ? " (" + loc.namalokasi + ")" : "") + ".", "fail");
+      const isInside = loc && (loc.IsInsideRadius !== undefined ? loc.IsInsideRadius : !!loc.isinsideradius);
+      const namaLokasi = loc ? (loc.NamaLokasi || loc.namalokasi || 'Unmapped') : '';
+      const dist = loc ? (loc.Distance !== undefined ? loc.Distance : loc.distance) : 0;
+
+      if (!loc || !isInside) {
+        showBanner(locBanner, "🔴 Di luar area site terdaftar" + (namaLokasi ? " (" + namaLokasi + ")" : "") + ".", "fail");
         showRetry();
         return;
       }
-      matchedLocation = loc;
-      showBanner(locBanner, `🟢 Lokasi: ${loc.namalokasi} (jarak ${Math.round(loc.distance)}m)`, "ok");
+      matchedLocation = { namalokasi: namaLokasi, ...loc };
+      showBanner(locBanner, `🟢 Lokasi: ${namaLokasi} (jarak ${Math.round(dist)}m)`, "ok");
       document.getElementById('materialCard').style.display = "block";
       await loadAvailableMaterial(projectCode);
     } catch (e) {
@@ -855,6 +914,11 @@ async function submitHandover() {
     statusEl.style.display = "none";
     showBanner(resultBanner, "🔴 Gagal menyimpan serah terima: " + e.message, "fail");
   }
+}
+</script>
+<script>
+if (navigator.onLine) {
+  syncFaceCache().catch(err => console.warn("Sync cache wajah gagal:", err));
 }
 </script>
 </body>
