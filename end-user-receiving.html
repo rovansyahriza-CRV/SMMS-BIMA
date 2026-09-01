@@ -211,6 +211,21 @@ async function syncFaceCache() {
   }
 }
 
+
+function evaluateFaceBox(box) {
+  if (!video.videoWidth || !video.videoHeight) return { ok: false, reason: "Kamera belum siap" };
+  const widthRatio = box.width / video.videoWidth;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  const offsetX = Math.abs(centerX - video.videoWidth / 2) / video.videoWidth;
+  const offsetY = Math.abs(centerY - video.videoHeight / 2) / video.videoHeight;
+
+  if (widthRatio < 0.25) return { ok: false, reason: "Terlalu jauh, dekatkan wajah" };
+  if (widthRatio > 0.75) return { ok: false, reason: "Terlalu dekat, jauhkan sedikit" };
+  if (offsetX > 0.22 || offsetY > 0.22) return { ok: false, reason: "Geser wajah ke tengah" };
+  return { ok: true, reason: "Posisi bagus" };
+}
+
 function withTimeout(promise, ms, timeoutMessage) {
   return Promise.race([
     promise,
@@ -359,22 +374,31 @@ async function proceedWithQr() {
 }
 
 // ============ 3. Kamera wajah bersama (depan buat storeman, belakang buat scan penerima) ============
+async function ensureCameraStream(facingMode) {
+  if (video.srcObject) {
+    wrap.style.display = "block";
+    return;
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+  });
+  video.srcObject = stream;
+  await video.play();
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  wrap.style.display = "block";
+}
+
 async function openFaceCameraAndPrompt() {
   try {
-    if (!video.srcObject) {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingModeFace, width: { ideal: 1280 }, height: { ideal: 720 } } });
-      video.srcObject = stream;
-      await video.play();
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-      wrap.style.display = "block";
-    }
+    await ensureCameraStream(currentFacingModeFace);
   } catch (e) {
     setStatus("❌ Gagal akses kamera wajah: " + e.message, "fail");
     showRetry();
     return;
   }
 
-  setStatus("Posisikan wajah di kotak, lalu tekan Scan Wajah.", "info");
+  setStatus("Posisikan wajah di dalam oval, lalu tekan Scan Wajah.", "info");
   faceGuideOval.style.display = "block";
   faceGuideHint.style.display = "block";
   faceGuideHint.innerText = "Posisikan wajah di dalam oval, lalu tekan Scan Wajah";
@@ -385,11 +409,12 @@ async function openFaceCameraAndPrompt() {
 
 btnSwitchFaceCam.onclick = async () => {
   currentFacingModeFace = currentFacingModeFace === "user" ? "environment" : "user";
-  if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  if (video.srcObject) { 
+    video.srcObject.getTracks().forEach(t => t.stop()); 
+    video.srcObject = null; 
+  }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingModeFace, width: { ideal: 1280 }, height: { ideal: 720 } } });
-    video.srcObject = stream;
-    await video.play();
+    await ensureCameraStream(currentFacingModeFace);
     setStatus(`Kamera diganti ke: ${currentFacingModeFace === "user" ? "Depan" : "Belakang"}`, "info");
   } catch (e) {
     setStatus("❌ Gagal ganti kamera: " + e.message, "fail");
@@ -399,19 +424,47 @@ btnSwitchFaceCam.onclick = async () => {
 // ============ 4. Tekan Scan Wajah -- cabang 1:1 vs 1:N ============
 btnScanFace.onclick = async () => {
   btnScanFace.disabled = true;
+  setStatus("Menyiapkan kamera...", "info");
+
+  // Pastikan frame video siap sebelum inferensi WebGL di iOS/Safari
+  let waitCount = 0;
+  while (video.readyState < video.HAVE_ENOUGH_DATA && waitCount < 50) {
+    await new Promise(r => setTimeout(r, 100));
+    waitCount++;
+  }
+  if (video.readyState < video.HAVE_ENOUGH_DATA) {
+    setStatus("❌ Kamera belum siap (video belum ada frame). Coba lagi.", "fail");
+    btnScanFace.disabled = false;
+    return;
+  }
+
   setStatus("Mendeteksi wajah...", "info");
 
   let detection;
   try {
-    detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
-      .withFaceLandmarks().withFaceDescriptor();
+    detection = await withTimeout(
+      faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor(),
+      15000,
+      "Deteksi wajah timeout (15 detik). Coba lagi."
+    );
   } catch (e) {
-    setStatus("❌ Error deteksi wajah: " + e.message, "fail");
+    setStatus("❌ " + e.message, "fail");
     btnScanFace.disabled = false;
     return;
   }
+
   if (!detection) {
-    setStatus("❌ Wajah tidak terdeteksi. Coba lagi.", "fail");
+    setStatus("❌ Wajah tidak terdeteksi. Posisikan wajah di dalam oval lalu coba lagi.", "fail");
+    btnScanFace.disabled = false;
+    return;
+  }
+
+  // Validasi posisi box wajah
+  let posCheck = evaluateFaceBox(detection.detection.box);
+  if (!posCheck.ok) {
+    setStatus(`❌ ${posCheck.reason}. Sesuaikan posisi lalu coba lagi.`, "fail");
     btnScanFace.disabled = false;
     return;
   }
