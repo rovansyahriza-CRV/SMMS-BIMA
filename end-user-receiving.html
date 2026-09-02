@@ -442,8 +442,14 @@ btnScanFace.onclick = async () => {
 
   let detection;
   try {
+    const snapCanvas = document.createElement('canvas');
+    snapCanvas.width = video.videoWidth || 640;
+    snapCanvas.height = video.videoHeight || 480;
+    const snapCtx = snapCanvas.getContext('2d', { willReadFrequently: true });
+    snapCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+
     detection = await withTimeout(
-      faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+      faceapi.detectSingleFace(snapCanvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
         .withFaceLandmarks()
         .withFaceDescriptor(),
       15000,
@@ -612,41 +618,52 @@ function proceedWithAccess(acc) {
 }
 
 // ============ GPS + cari lokasi terdekat ============
-function initGPS() {
+async function initGPS() {
   if (!navigator.geolocation) {
     showBanner(locBanner, "❌ Browser tidak mendukung GPS.", "fail");
     return;
   }
-  showBanner(locBanner, "🔄 Mengunci lokasi GPS...", "info");
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    matchedLat = lat; matchedLng = lng;
-    showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
-    try {
-      const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
-      if (error) throw error;
-      const loc = Array.isArray(data) ? data[0] : data;
-      const isInside = loc && (loc.IsInsideRadius !== undefined ? loc.IsInsideRadius : !!loc.isinsideradius);
-      const namaLokasi = loc ? (loc.NamaLokasi || loc.namalokasi || 'Unmapped') : '';
-      const dist = loc ? (loc.Distance !== undefined ? loc.Distance : loc.distance) : 0;
+  showBanner(locBanner, "📍 Mengunci lokasi GPS...", "info");
 
-      if (!loc || !isInside) {
-        showBanner(locBanner, "🔴 Di luar area site terdaftar" + (namaLokasi ? " (" + namaLokasi + ")" : "") + ".", "fail");
-        showRetry();
-        return;
-      }
-      matchedLocation = { namalokasi: namaLokasi, ...loc };
-      showBanner(locBanner, `🟢 Lokasi: ${namaLokasi} (jarak ${Math.round(dist)}m)`, "ok");
-      document.getElementById('materialCard').style.display = "block";
-      await loadAvailableMaterial(projectCode);
-    } catch (e) {
-      showBanner(locBanner, "🔴 Gagal cek lokasi: " + e.message, "fail");
+  let pos = null;
+  const getGeo = (opts) => new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, opts));
+
+  try {
+    pos = await getGeo({ enableHighAccuracy: true, timeout: 7000, maximumAge: 30000 });
+  } catch (e1) {
+    try {
+      pos = await getGeo({ enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 });
+    } catch (e2) {
+      showBanner(locBanner, "🔴 Gagal ambil GPS. Aktifkan GPS/WiFi di HP.", "fail");
       showRetry();
+      return;
     }
-  }, (err) => {
-    showBanner(locBanner, "🔴 Gagal ambil GPS: " + err.message, "fail");
+  }
+
+  const lat = pos.coords.latitude, lng = pos.coords.longitude;
+  matchedLat = lat; matchedLng = lng;
+  showBanner(locBanner, "🔄 GPS terkunci. Mencari lokasi terdekat...", "info");
+  try {
+    const { data, error } = await supabaseClient.rpc('find_nearest_location', { p_lat: lat, p_lng: lng });
+    if (error) throw error;
+    const loc = Array.isArray(data) ? data[0] : data;
+    const isInside = loc && (loc.IsInsideRadius !== undefined ? loc.IsInsideRadius : !!loc.isinsideradius);
+    const namaLokasi = loc ? (loc.NamaLokasi || loc.namalokasi || 'Unmapped') : '';
+    const dist = loc ? (loc.Distance !== undefined ? loc.Distance : loc.distance) : 0;
+
+    if (!loc || !isInside) {
+      showBanner(locBanner, "🔴 Di luar area site terdaftar" + (namaLokasi ? " (" + namaLokasi + ")" : "") + ".", "fail");
+      showRetry();
+      return;
+    }
+    matchedLocation = { namalokasi: namaLokasi, ...loc };
+    showBanner(locBanner, `🟢 Lokasi: ${namaLokasi} (jarak ${Math.round(dist)}m)`, "ok");
+    document.getElementById('materialCard').style.display = "block";
+    await loadAvailableMaterial(projectCode);
+  } catch (e) {
+    showBanner(locBanner, "🔴 Gagal cek lokasi: " + e.message, "fail");
     showRetry();
-  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  }
 }
 
 // ============ helper: daftar POID yang termasuk project tertentu ============
