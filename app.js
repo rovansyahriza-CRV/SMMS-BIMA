@@ -72,11 +72,33 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 });
-function initAuthSession() {
+async function initAuthSession() {
   const savedUser = localStorage.getItem('bima_user');
   if (savedUser) {
     currentUser = JSON.parse(savedUser);
     updateUIAuth();
+
+    // Auto-sync Author & PIC dari database paswordTbl tiap load page,
+    // sehingga perubahan di Fusion4 langsung aktif seketika saat refresh tanpa perlu logout.
+    try {
+      const { data: pasRow } = await supabaseClient
+        .from('paswordTbl')
+        .select('Author, pic')
+        .eq('Id', currentUser.id)
+        .maybeSingle();
+      if (pasRow) {
+        currentUser.Author = pasRow.Author || '';
+        currentUser.PIC = pasRow.pic || '';
+        const picList = (currentUser.PIC || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        const authorStr = (currentUser.Author || '').toLowerCase();
+        const isAllAdmin = picList.includes('all') || picList.includes('*') || authorStr.split(',').map(s => s.trim()).includes('all');
+        currentUser.canInputMaster = isAllAdmin || picList.includes('input master resources') || picList.includes('mr');
+        localStorage.setItem('bima_user', JSON.stringify(currentUser));
+        applyMenuAccess();
+      }
+    } catch (e) {
+      console.warn('Auto-sync user access error:', e.message);
+    }
   } else {
     currentUser = null;
     updateUIAuth();
@@ -96,9 +118,10 @@ async function loginUser(idKaryawan, password) {
 
     if (data && data.length > 0) {
       const userRow = data[0];                    // <-- ditambahin
-      const authorStr = userRow.author || '';      // <-- ditambahin
+      const authorStr = userRow.author || '';
       const picStr = userRow.pic || '';
       const picList = picStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const isAllAdmin = picList.includes('all') || picList.includes('*') || (authorStr.toLowerCase().split(',').map(s => s.trim()).includes('all'));
 
       currentUser = {
         id: userRow.id,
@@ -106,7 +129,7 @@ async function loginUser(idKaryawan, password) {
         kualifikasi: userRow.kualifikasi,
         Author: authorStr,
         PIC: picStr,
-        canInputMaster: picList.includes('input master resources')
+        canInputMaster: isAllAdmin || picList.includes('input master resources') || picList.includes('mr')
       };
 
       // Ambil QrCodeId terpisah dari karyawanTbl -- dipakai buat QR tanda tangan digital di
@@ -908,52 +931,72 @@ window.switchMainSection = function(sectionId, btnEl) {
 };
 
 function applyMenuAccess() {
-  const picList = (currentUser?.PIC || '')
-    .split(',')
-    .map(s => s.trim().toLowerCase())
-    .filter(Boolean);
+  const picRaw = String(currentUser?.PIC || '').trim().toUpperCase();
+  const authorRaw = String(currentUser?.Author || '').trim().toUpperCase();
 
-  let firstVisibleBtn = null;
-  let activeBtnStillVisible = false;
+  const picTokens = picRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const authorTokens = authorRaw.split(',').map(s => s.trim()).filter(Boolean);
 
-  document.querySelectorAll('.sidebar-nav-btn[data-pic]').forEach(btn => {
-    const requiredList = btn.getAttribute('data-pic')
-      .split('|')
-      .map(s => s.trim().toLowerCase());
-    const hasAccess = requiredList.some(req => picList.includes(req));
-    btn.style.display = hasAccess ? 'flex' : 'none';
+  const isSuperAdmin = picTokens.includes('ALL') || picTokens.includes('*') || authorTokens.includes('ALL') || authorTokens.includes('*');
 
-    if (hasAccess && !firstVisibleBtn) firstVisibleBtn = btn;
-    if (hasAccess && btn.classList.contains('active')) activeBtnStillVisible = true;
+  // Helper matcher (support Inisial Singkat ala Fusion4 + String Legacy Lengkap)
+  const matchPic = (...keys) => isSuperAdmin || keys.some(k => picTokens.includes(k.toUpperCase()));
+  const matchAuthor = (...keys) => isSuperAdmin || keys.some(k => {
+    const ku = k.toUpperCase();
+    return authorTokens.some(a => a === ku || a.startsWith(ku + '-') || a.startsWith(ku + ' ') || a.includes(ku));
   });
 
-  // Kalau section yang lagi aktif gak termasuk hak akses user ini,
-  // otomatis pindah ke menu pertama yang emang boleh dia buka
-  if (!activeBtnStillVisible && firstVisibleBtn) {
-    firstVisibleBtn.click();
-  }
+  // 1. Master Resources (Inisial: MR / Input Master Resources)
+  const btnMaster = document.getElementById('btnNavMaster') || document.querySelector('.sidebar-nav-btn[onclick*="sec-master"]');
+  if (btnMaster) btnMaster.style.display = (matchPic('MR', 'INPUT MASTER RESOURCES')) ? 'flex' : 'none';
 
-  // ▼▼▼ TAMBAHAN BARU — cek akses menu Approval berdasarkan Author, bukan PIC ▼▼▼
-  const authorStr = (currentUser?.Author || '').toLowerCase();
-  const hasApprovalAccess = /(^|,)\s*(review|approval)\s+request\s+\S+/i.test(authorStr);
+  // 2. Request (Inisial: REQ / Create Request / Review Request)
+  const btnReq = document.getElementById('btnNavRequest') || document.querySelector('.sidebar-nav-btn[onclick*="sec-request"]');
+  if (btnReq) btnReq.style.display = (matchPic('REQ', 'CREATE REQUEST', 'REVIEW REQUEST') || picTokens.some(t => t.startsWith('REQ-') || t.startsWith('REQUEST '))) ? 'flex' : 'none';
+
+  // 3. Approval Request (Inisial: AR / RR / AR-101 / RR-014 / Approval Request / Review Request)
   const btnApproval = document.getElementById('btnNavApproval');
-  if (btnApproval) btnApproval.style.display = hasApprovalAccess ? 'flex' : 'none';
-  // ▲▲▲ TAMBAHAN BARU ▲▲▲
-  const btnApprovalRfq = document.getElementById('btnNavApprovalRfq');
-  if (btnApprovalRfq) btnApprovalRfq.style.display = hasApprovalAccess ? 'flex' : 'none';
+  if (btnApproval) btnApproval.style.display = (matchAuthor('AR', 'RR', 'APPROVAL REQUEST', 'REVIEW REQUEST') || authorTokens.some(t => t.startsWith('AR-') || t.startsWith('RR-'))) ? 'flex' : 'none';
 
-  const btnApprovalPo = document.getElementById('btnNavApprovalPo');
-  if (btnApprovalPo) btnApprovalPo.style.display = hasApprovalAccess ? 'flex' : 'none';
-  // ▼▼▼ TAMBAHAN BARU — cek akses menu Vendor berdasarkan Author (2-tier, tanpa project) ▼▼▼
-  const hasVendorAccess = /(^|,)\s*(review|approval)\s+vendor\b/.test(authorStr);
+  // 4. Vendor Pendaftaran (Inisial: AV / RV / Approval Vendor / Review Vendor)
   const btnVendor = document.getElementById('btnNavVendor');
-  if (btnVendor) btnVendor.style.display = hasVendorAccess ? 'flex' : 'none';
+  if (btnVendor) btnVendor.style.display = (matchAuthor('AV', 'RV', 'APPROVAL VENDOR', 'REVIEW VENDOR')) ? 'flex' : 'none';
 
-  const hasRfqAccess = authorStr.split(',').map(s => s.trim()).includes('rfq');
-  const btnRFQ = document.getElementById('btnNavRFQ');
-  if (btnRFQ) btnRFQ.style.display = hasRfqAccess ? 'flex' : 'none';
+  // 5. Approval Seleksi Vendor (Inisial: ASV / ASV-101 / Approval Seleksi Vendor)
+  const btnApprovalRfq = document.getElementById('btnNavApprovalRfq');
+  if (btnApprovalRfq) btnApprovalRfq.style.display = (matchAuthor('ASV', 'APPROVAL SELEKSI VENDOR') || authorTokens.some(t => t.startsWith('ASV-'))) ? 'flex' : 'none';
 
-  // ▲▲▲ TAMBAHAN BARU ▲▲▲
+  // 6. Approval PO/SO (Inisial: APO / APO-101 / Approval PO/SO)
+  const btnApprovalPo = document.getElementById('btnNavApprovalPo');
+  if (btnApprovalPo) btnApprovalPo.style.display = (matchAuthor('APO', 'APPROVAL PO/SO') || authorTokens.some(t => t.startsWith('APO-'))) ? 'flex' : 'none';
+
+  // 7. Buat RFQ (Inisial: RFQ / Create RFQ)
+  const btnRfq = document.getElementById('btnNavRfq') || document.querySelector('.sidebar-nav-btn[onclick*="sec-rfq"]');
+  if (btnRfq) btnRfq.style.display = (matchPic('RFQ', 'CREATE RFQ') || matchAuthor('RFQ')) ? 'flex' : 'none';
+
+  // 8. Seleksi Vendor RFQ (Inisial: SVR / SRFQ / Create RFQ)
+  const btnSvr = document.getElementById('btnNavRfqSelection') || document.querySelector('.sidebar-nav-btn[onclick*="sec-rfq-selection"]');
+  if (btnSvr) btnSvr.style.display = (matchPic('SVR', 'SRFQ', 'CREATE RFQ')) ? 'flex' : 'none';
+
+  // 9. Ajukan PO/SO (Inisial: PO / PO-101 / APO / Create RFQ)
+  const btnPoSubmit = document.getElementById('btnNavPoSubmit') || document.querySelector('.sidebar-nav-btn[onclick*="sec-po-submit"]');
+  if (btnPoSubmit) btnPoSubmit.style.display = (matchPic('PO', 'APO', 'CREATE RFQ') || picTokens.some(t => t.startsWith('PO-'))) ? 'flex' : 'none';
+
+  // 10. Terima dari Vendor (Inisial: TV / TRV / Terima Vendor)
+  const btnTv = document.getElementById('btnNavVendorReceiving') || document.querySelector('.sidebar-nav-btn[onclick*="sec-vendor-receiving"]');
+  if (btnTv) btnTv.style.display = (matchPic('TV', 'TRV', 'TERIMA VENDOR')) ? 'flex' : 'none';
+
+  // 11. View Report (Selalu terbuka / atau key VR)
+  const btnVr = document.getElementById('btnNavViewReport');
+  if (btnVr) btnVr.style.display = 'flex';
+
+  // Otomatis klik tombol aktif pertama jika section aktif tersembunyi
+  const visibleButtons = Array.from(document.querySelectorAll('.sidebar-menu .sidebar-nav-btn'))
+    .filter(b => b.style.display !== 'none');
+  const currentActive = document.querySelector('.sidebar-menu .sidebar-nav-btn.active');
+  if (visibleButtons.length > 0 && (!currentActive || currentActive.style.display === 'none')) {
+    visibleButtons[0].click();
+  }
 }
 
 // ==========================================
