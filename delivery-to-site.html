@@ -221,6 +221,7 @@ function withTimeout(promise, ms, timeoutMessage) {
 
 function evaluateFaceBox(box) {
   if (!video.videoWidth || !video.videoHeight) return { ok: false, reason: "Kamera belum siap" };
+  if (!video.videoWidth || !video.videoHeight) return { ok: true, reason: "Posisi bagus" };
   const widthRatio = box.width / video.videoWidth;
   const centerX = box.x + box.width / 2;
   const centerY = box.y + box.height / 2;
@@ -230,6 +231,9 @@ function evaluateFaceBox(box) {
   if (widthRatio < 0.25) return { ok: false, reason: "Terlalu jauh, dekatkan wajah" };
   if (widthRatio > 0.75) return { ok: false, reason: "Terlalu dekat, jauhkan sedikit" };
   if (offsetX > 0.22 || offsetY > 0.22) return { ok: false, reason: "Geser wajah ke tengah" };
+  if (widthRatio < 0.15) return { ok: false, reason: "Terlalu jauh, dekatkan wajah ke kamera" };
+  if (widthRatio > 0.95) return { ok: false, reason: "Terlalu dekat, jauhkan sedikit dari kamera" };
+  if (offsetX > 0.38 || offsetY > 0.38) return { ok: false, reason: "Posisikan wajah lebih ke tengah" };
   return { ok: true, reason: "Posisi bagus" };
 }
 
