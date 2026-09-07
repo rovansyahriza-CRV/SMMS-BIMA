@@ -71,6 +71,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     }
+
+    // === LOGIKA AUTO FILTER SPESIFIKASI DARI GROUP (MASTER RESOURCES) ===
+    const groupInput = document.getElementById('group');
+    if (groupInput) {
+      groupInput.addEventListener('input', updateSpecificationOptions);
+      groupInput.addEventListener('change', updateSpecificationOptions);
+    }
+    const specInput = document.getElementById('specification');
+    if (specInput) {
+      specInput.addEventListener('input', handleSpecificationInput);
+      specInput.addEventListener('change', handleSpecificationInput);
+    }
 });
 async function initAuthSession() {
   const savedUser = localStorage.getItem('bima_user');
@@ -337,11 +349,66 @@ async function loadCategoryData() {
 
     rawCategoryData = Array.isArray(data) ? data : [];
     applyFilters();
+    updateSpecificationOptions();
   } catch (error) {
     console.error('Error:', error);
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: red;">Gagal memuat data.</td></tr>';
   }
-}   // <-- TAMBAHIN INI, penutup fungsi loadCategoryData()
+}
+
+// #3 - updateSpecificationOptions & handleSpecificationInput
+function updateSpecificationOptions() {
+  const datalist = document.getElementById('specificationOptions');
+  if (!datalist) return;
+  datalist.innerHTML = '';
+
+  const groupInput = document.getElementById('group');
+  const selectedGroup = (groupInput ? groupInput.value : '').trim().toLowerCase();
+
+  const seen = new Set();
+  (rawCategoryData || []).forEach(item => {
+    const itemGroup = (item.Group || item.GroupName || '').trim().toLowerCase();
+    const spec = (item.Specification || '').trim();
+
+    // Jika kelompok (Group) sudah dipilih/diketik, filter spesifikasi dari kelompok tsb.
+    // Jika belum dipilih, tampilkan semua spesifikasi yang ada di kategori aktif.
+    const isMatchedGroup = !selectedGroup || itemGroup === selectedGroup || itemGroup.includes(selectedGroup);
+    if (spec && isMatchedGroup && !seen.has(spec)) {
+      seen.add(spec);
+      const option = document.createElement('option');
+      option.value = spec;
+      datalist.appendChild(option);
+    }
+  });
+}
+
+function handleSpecificationInput(e) {
+  const specVal = (e.target.value || '').trim().toLowerCase();
+  if (!specVal) return;
+
+  const groupInput = document.getElementById('group');
+  const groupVal = (groupInput ? groupInput.value : '').trim().toLowerCase();
+
+  const matched = (rawCategoryData || []).find(item => {
+    const g = (item.Group || item.GroupName || '').trim().toLowerCase();
+    const s = (item.Specification || '').trim().toLowerCase();
+    return s === specVal && (!groupVal || g === groupVal || g.includes(groupVal));
+  });
+
+  if (matched) {
+    const sizeInput = document.getElementById('size');
+    const unitInput = document.getElementById('unit');
+    if (sizeInput && !sizeInput.value && matched.Size) {
+      sizeInput.value = matched.Size;
+    }
+    if (unitInput && !unitInput.value && matched.Unit) {
+      unitInput.value = matched.Unit;
+    }
+    if (groupInput && !groupInput.value && (matched.Group || matched.GroupName)) {
+      groupInput.value = matched.Group || matched.GroupName;
+    }
+  }
+}
 
 // Global Live Search Filter
 function initTableFilters() {
@@ -468,6 +535,7 @@ function startEdit(id, group, spec, size, unit) {
 
   document.getElementById('editId').value = id;
   document.getElementById('group').value = group;
+  updateSpecificationOptions();
   document.getElementById('specification').value = spec;
   document.getElementById('size').value = size;
   document.getElementById('unit').value = unit;
@@ -491,6 +559,8 @@ function resetForm() {
   
   const btnCancel = document.getElementById('btnCancel');
   if (btnCancel) btnCancel.style.display = 'none';
+
+  updateSpecificationOptions();
 }
 
 async function deleteItem(id) {
