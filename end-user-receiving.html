@@ -983,6 +983,39 @@ async function submitHandover() {
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `EUR_${noTrx.replace(/\//g, '-')}.pdf`);
       await supabaseClient.from('endUserReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+
+      // Update Status Request terkait menjadi 'Selesai (Diterima End User)'
+      try {
+        const recvIds = [...new Set(payload.map(p => p.ReceivingID).filter(Boolean))];
+        if (recvIds.length > 0) {
+          const { data: srRows } = await supabaseClient.from('siteReceiving').select('DeliveryID').in('ReceivingID', recvIds);
+          const delIds = [...new Set((srRows || []).map(r => r.DeliveryID).filter(Boolean))];
+          if (delIds.length > 0) {
+            const { data: delRows } = await supabaseClient.from('delivery').select('PODetailID').in('DeliveryID', delIds);
+            const podIds = [...new Set((delRows || []).map(r => r.PODetailID).filter(Boolean))];
+            if (podIds.length > 0) {
+              const { data: podRows } = await supabaseClient.from('purchaseOrderDetail').select('RFQDetailID').in('PODetailID', podIds);
+              const rfqDetIds = [...new Set((podRows || []).map(r => r.RFQDetailID).filter(Boolean))];
+              if (rfqDetIds.length > 0) {
+                const { data: rfqDetRows } = await supabaseClient.from('rfqDetail').select('RequestID').in('RFQDetailID', rfqDetIds);
+                const reqIds = [...new Set((rfqDetRows || []).map(r => r.RequestID).filter(Boolean))];
+                if (reqIds.length > 0) {
+                  await supabaseClient.from('request').update({ Status: 'Selesai (Diterima End User)' }).in('ID', reqIds);
+                  const { data: reqRows } = await supabaseClient.from('request').select('RefNo').in('ID', reqIds);
+                  const affectedRefNos = [...new Set((reqRows || []).map(r => r.RefNo).filter(Boolean))];
+                  for (const rNo of affectedRefNos) {
+                    if (typeof refreshRequestReportPdf === 'function') {
+                      refreshRequestReportPdf(rNo, 'Selesai (Diterima End User)').catch(e => console.warn('Refresh request report on EUR failed:', e));
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (eurErr) {
+        console.warn('Gagal update status request di End User Receiving:', eurErr);
+      }
     } catch (reportErr) {
       console.warn('Gagal membuat/upload report PDF:', reportErr);
       showBanner(resultBanner, `✅ Serah terima tersimpan, tapi report PDF gagal dibuat: ${reportErr.message}`, "ok");

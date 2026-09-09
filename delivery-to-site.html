@@ -1175,6 +1175,33 @@ async function showPendingDeliveries(projCode) {
             const pdfBlob = reportPdfToBlob(pdfDoc);
             const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `SR_${noTrx.replace(/\//g, '-')}.pdf`);
             await supabaseClient.from('siteReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+
+            // Update Status PO menjadi 'Barang Tiba di Site' dan Request terkait menjadi 'Barang Diterima di Site'
+            try {
+              const receivedPoIds = [...new Set(payload.map(p => {
+                const tr = card.querySelector(`tr[data-deliveryid="${p.DeliveryID}"]`);
+                return tr ? Number(tr.dataset.poid) : null;
+              }).filter(Boolean))];
+              if (receivedPoIds.length > 0) {
+                await supabaseClient.from('purchaseOrder').update({ Status: 'Barang Tiba di Site' }).in('POID', receivedPoIds);
+              }
+
+              const receivedRefNos = [...new Set(payload.map(p => {
+                const tr = card.querySelector(`tr[data-deliveryid="${p.DeliveryID}"]`);
+                const podetailId = tr ? Number(tr.dataset.podetailid) : null;
+                return refNoForPODetail(podetailId);
+              }).filter(Boolean))];
+              if (receivedRefNos.length > 0) {
+                await supabaseClient.from('request').update({ Status: 'Barang Diterima di Site' }).in('RefNo', receivedRefNos);
+                for (const rNo of receivedRefNos) {
+                  if (typeof refreshRequestReportPdf === 'function') {
+                    refreshRequestReportPdf(rNo, 'Barang Diterima di Site').catch(e => console.warn('Refresh request report on site receiving failed:', e));
+                  }
+                }
+              }
+            } catch (statusErr) {
+              console.warn('Gagal update status PO/Request di Site Receiving:', statusErr);
+            }
           } catch (reportErr) {
             console.warn('Gagal membuat/upload report PDF:', reportErr);
             showBanner(resultBanner, `✅ Penerimaan tersimpan, tapi report PDF gagal dibuat: ${reportErr.message}`, "ok");

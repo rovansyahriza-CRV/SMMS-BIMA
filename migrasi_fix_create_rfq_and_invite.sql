@@ -1,4 +1,4 @@
-﻿-- =====================================================================================
+-- =====================================================================================
 -- MIGRASI PERBAIKAN FUNCTION RPC: create_rfq_and_invite
 -- Mengatasi error: operator does not exist: text = numeric
 -- =====================================================================================
@@ -90,6 +90,11 @@ BEGIN
                 v_req.qty
             );
         END LOOP;
+
+        -- Update Status di table request menjadi 'Dalam Proses RFQ'
+        UPDATE "request"
+        SET "Status" = 'Dalam Proses RFQ'
+        WHERE "ID"::BIGINT = ANY(p_request_ids);
     END IF;
 
     -- 4. Insert Vendor ke rfqVendor dan siapkan return table

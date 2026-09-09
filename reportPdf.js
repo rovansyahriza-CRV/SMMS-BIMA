@@ -585,3 +585,171 @@ async function generateVendorSelectionReportPdf(data) {
 function reportPdfToBlob(doc) {
   return doc.output("blob");
 }
+
+// =====================================================================================
+// Helper: Refresh & Upload PDF Report Request (Permintaan Material)
+// Dipanggil otomatis setiap kali ada transisi status / persetujuan / tahapan berikutnya
+// =====================================================================================
+async function refreshRequestReportPdf(refno, forcedStatus = null) {
+  try {
+    if (!refno || typeof supabaseClient === 'undefined') return null;
+    const { data: reqRows, error: reqErr } = await supabaseClient
+      .from('request')
+      .select('*')
+      .eq('RefNo', refno);
+    if (reqErr || !reqRows || reqRows.length === 0) return null;
+    const firstReq = reqRows[0];
+
+    const { data: apprRow } = await supabaseClient
+      .from('request_approval')
+      .select('*')
+      .eq('RefNo', refno)
+      .maybeSingle();
+
+    // Fetch employee data
+    let employeeMap = {};
+    try {
+      const { data: empList } = await supabaseClient
+        .from('karyawanTbl')
+        .select('Id, Nama, Kualifikasi, QrCodeId');
+      if (empList) {
+        empList.forEach(e => {
+          if (e.Id != null) employeeMap[String(e.Id)] = e;
+          if (e.QrCodeId) employeeMap[String(e.QrCodeId).toLowerCase()] = e;
+          if (e.Nama) employeeMap[String(e.Nama).toLowerCase()] = e;
+        });
+      }
+    } catch (empErr) {
+      console.warn('Gagal ambil data karyawan untuk report:', empErr);
+    }
+
+    const getEmp = (val) => {
+      if (!val) return null;
+      return employeeMap[String(val)] || employeeMap[String(val).toLowerCase()] || null;
+    };
+
+    // Tentukan status saat ini
+    let currentStatus = forcedStatus || firstReq.Status || 'Menunggu Review';
+    if (!forcedStatus && apprRow) {
+      const lvl = String(apprRow.CurrentLevel || '').toLowerCase();
+      if (lvl === 'review') {
+        currentStatus = 'Menunggu Review';
+      } else if (lvl === 'approval') {
+        currentStatus = 'Menunggu Approval Direktur';
+      } else if (lvl === 'approved') {
+        const existingStatus = firstReq.Status || '';
+        if (['Dalam Proses RFQ', 'PO Diterbitkan', 'Barang Diterima di Site', 'Selesai (Diterima End User)'].includes(existingStatus)) {
+          currentStatus = existingStatus;
+        } else {
+          currentStatus = 'Disetujui';
+        }
+      } else if (lvl === 'rejected') {
+        currentStatus = 'Ditolak';
+      }
+    }
+
+    const reqDateStr = firstReq.DATE_REQUEST 
+      ? new Date(firstReq.DATE_REQUEST).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+      : (firstReq.created_at ? new Date(firstReq.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }));
+
+    // Requester info
+    const reqEmp = getEmp(firstReq.RequestBy);
+    const reqByName = reqEmp ? reqEmp.Nama : (firstReq.RequestBy || 'Requester');
+    const reqBySub = reqEmp?.Kualifikasi || '';
+    const reqByQr = `QrCodeID=${reqEmp?.QrCodeId || ''}|NoTransaksi=${refno}`;
+
+    // Riwayat Approval
+    const approvalHistory = [
+      { tanggal: reqDateStr, oleh: reqByName, keterangan: 'Request diajukan' }
+    ];
+
+    if (apprRow?.ReviewedAt && apprRow?.ReviewedBy) {
+      const revEmp = getEmp(apprRow.ReviewedBy);
+      const revName = revEmp ? revEmp.Nama : apprRow.ReviewedBy;
+      const revSub = revEmp?.Kualifikasi ? ` (${revEmp.Kualifikasi})` : '';
+      approvalHistory.push({
+        tanggal: new Date(apprRow.ReviewedAt).toLocaleString('id-ID'),
+        oleh: `${revName}${revSub}`,
+        keterangan: 'Review disetujui, diteruskan ke Direktur'
+      });
+    }
+
+    let disetujuiOleh = null;
+    let disetujuiOlehSub = null;
+    let disetujuiOlehQr = null;
+
+    if (apprRow?.ApprovedAt && apprRow?.ApprovedBy) {
+      const appEmp = getEmp(apprRow.ApprovedBy);
+      const appName = appEmp ? appEmp.Nama : apprRow.ApprovedBy;
+      const appSub = appEmp?.Kualifikasi || 'Direktur';
+      const appQr = appEmp?.QrCodeId || 'APPROVED';
+
+      approvalHistory.push({
+        tanggal: new Date(apprRow.ApprovedAt).toLocaleString('id-ID'),
+        oleh: `${appName} (${appSub})`,
+        keterangan: 'Disetujui (Approved)'
+      });
+
+      disetujuiOleh = appName;
+      disetujuiOlehSub = appSub;
+      disetujuiOlehQr = `QrCodeID=${appQr}|NoTransaksi=${refno}|Status=Approved`;
+    }
+
+    if (apprRow?.RejectedAt && apprRow?.RejectedBy) {
+      const rejEmp = getEmp(apprRow.RejectedBy);
+      const rejName = rejEmp ? rejEmp.Nama : apprRow.RejectedBy;
+      const rejSub = rejEmp?.Kualifikasi ? ` (${rejEmp.Kualifikasi})` : '';
+      approvalHistory.push({
+        tanggal: new Date(apprRow.RejectedAt).toLocaleString('id-ID'),
+        oleh: `${rejName}${rejSub}`,
+        keterangan: `Ditolak: ${apprRow.RejectReason || '-'}`
+      });
+    }
+
+    const fmtItemCode = (it) => {
+      const grp = it.ItemGroup || '';
+      const id = it.ItemID != null ? it.ItemID : '';
+      if (!grp && !id) return '';
+      return `${grp}-${String(id).padStart(4, '0')}`;
+    };
+
+    const items = reqRows.map(it => ({
+      kode: fmtItemCode(it) || (it.ItemGroup || '-'),
+      desk: it.ItemDescription || '-',
+      qty: it.QTY != null ? it.QTY : 0,
+      unit: it.UNIT || ''
+    }));
+
+    const pdfDoc = await generateRequestReportPdf({
+      refNo: refno,
+      woNo: firstReq.WONo || firstReq.WO_NO || '-',
+      projectId: firstReq.ProjectID || firstReq.PROJECTID || '-',
+      tanggalRequest: reqDateStr,
+      diajukanOleh: reqByName,
+      diajukanOlehSub: reqBySub,
+      diajukanOlehQr: reqByQr,
+      status: currentStatus,
+      keperluan: firstReq.Purpose || '-',
+      items: items,
+      approvalHistory: approvalHistory,
+      disetujuiOleh: disetujuiOleh,
+      disetujuiOlehSub: disetujuiOlehSub,
+      disetujuiOlehQr: disetujuiOlehQr
+    });
+
+    const pdfBlob = reportPdfToBlob(pdfDoc);
+    const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${refno.replace(/\//g, '-')}.pdf`);
+    
+    await supabaseClient.from('request').update({
+      Status: currentStatus,
+      ReportURL: uploadedPdf.directUrl,
+      ReportFileID: uploadedPdf.fileId
+    }).eq('RefNo', refno);
+
+    return uploadedPdf;
+  } catch (err) {
+    console.warn('refreshRequestReportPdf failed:', err);
+    return null;
+  }
+}
+
