@@ -2036,7 +2036,18 @@ async function loadRfqSelectionDetail(rfqId) {
 
   const rowsInfo = [
     { label: 'Mobilisasi', get: t => t ? Number(t.MobilisasiCost) || 0 : 0, money: true },
-    { label: 'Biaya Lain', get: t => t ? Number(t.OtherServiceCost) || 0 : 0, money: true },
+    { 
+      label: 'Biaya Lain', 
+      render: (t, v) => {
+        const cost = t ? Number(t.OtherServiceCost) || 0 : 0;
+        const desc = t && t.OtherServiceDescription ? t.OtherServiceDescription : '';
+        let out = 'Rp ' + cost.toLocaleString('id-ID');
+        if (desc) {
+          out += `<div style="font-size:11.5px; color:#555; font-style:italic; margin-top:2px;">(${desc})</div>`;
+        }
+        return out;
+      }
+    },
     { label: 'PPN', get: t => t ? Number(t.PPNAmount) || 0 : 0, money: true },
     { label: 'Termin Pembayaran', get: t => t ? (t.PaymentTermType || '-') + (t.DPPercentage ? ' (DP ' + t.DPPercentage + '%)' : '') : '-', money: false },
     { label: 'Catatan Vendor', get: (t, v) => (v && v.Notes) ? v.Notes : (t && t.Notes ? t.Notes : '-'), money: false }
@@ -2045,8 +2056,14 @@ async function loadRfqSelectionDetail(rfqId) {
     html += `<tr><td colspan="2" style="font-weight:600;">${row.label}</td>`;
     vendors.forEach(v => {
       const term = rfqVendorIdToTerm[v.RFQVendorID] || rfqVendorIdToTerm[String(v.RFQVendorID)];
-      const val = row.get(term, v);
-      html += `<td style="text-align:center;">${row.money ? 'Rp ' + Number(val).toLocaleString('id-ID') : val}</td>`;
+      let cellContent = '';
+      if (row.render) {
+        cellContent = row.render(term, v);
+      } else {
+        const val = row.get(term, v);
+        cellContent = row.money ? 'Rp ' + Number(val).toLocaleString('id-ID') : val;
+      }
+      html += `<td style="text-align:center;">${cellContent}</td>`;
     });
     html += '</tr>';
   });

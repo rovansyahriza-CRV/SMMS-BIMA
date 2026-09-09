@@ -233,7 +233,8 @@ async function generatePoPdfBase64(poHeader, vendorInfo, termData, items) {
     y += 6;
   }
   if (otherService > 0) {
-    doc.text("Biaya Jasa Lain", 130, y);
+    const otherLabel = (termData && termData.OtherServiceDescription) ? `Biaya Jasa (${termData.OtherServiceDescription})` : 'Biaya Jasa Lain';
+    doc.text(otherLabel, 130, y);
     doc.text("Rp " + otherService.toLocaleString("id-ID"), 196, y, { align: 'right' });
     y += 6;
   }
