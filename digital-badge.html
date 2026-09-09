@@ -1397,15 +1397,129 @@ async function submitPin() {
           console.warn('Gagal sinkronisasi status RFQ:', linkErr);
         }
 
+        // Otomatis buat Draft PO/SO agar langsung masuk ke menu "Ajukan PO/SO"
+        try {
+          await generateDraftPoFromRfqVendor(rfqVendorId);
+        } catch (poGenErr) {
+          console.warn('Gagal generate draft PO:', poGenErr);
+        }
+
         if (extra && extra.vendoremail) {
           sendRfqApprovalEmail(extra).catch(e => console.warn('Gagal kirim email hasil seleksi ke vendor:', e.message));
         }
       }
 
-      alert('Seleksi Vendor RFQ berhasil diproses.');
+      alert('Seleksi Vendor RFQ berhasil diproses & Draft PO/SO telah dibuat.');
       loadApprovalIssues(qrId);
     } catch (e) {
       alert("Gagal memproses: " + e.message);
+    }
+  }
+
+  async function generateDraftPoFromRfqVendor(rfqVendorId) {
+    try {
+      const { data: rvRow, error: rvErr } = await supabaseClient
+        .from('rfqVendor')
+        .select('*')
+        .eq('RFQVendorID', Number(rfqVendorId))
+        .maybeSingle();
+      if (rvErr || !rvRow) return;
+
+      // Cek jika PO sudah ada
+      const { data: existingPo } = await supabaseClient
+        .from('purchaseOrder')
+        .select('POID')
+        .eq('RFQID', rvRow.RFQID)
+        .eq('VendorID', rvRow.VendorID)
+        .maybeSingle();
+      if (existingPo) return;
+
+      // Ambil RFQ header, Details, Quotes pemenang, dan Term
+      const [
+        { data: rfqRow },
+        { data: details },
+        { data: quotes },
+        { data: termRows }
+      ] = await Promise.all([
+        supabaseClient.from('rfq').select('*').eq('RFQID', rvRow.RFQID).maybeSingle(),
+        supabaseClient.from('rfqDetail').select('*').eq('RFQID', rvRow.RFQID),
+        supabaseClient.from('rfqQuote').select('*').eq('VendorID', rvRow.VendorID).eq('IsSelected', 'Yes'),
+        supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rvRow.RFQVendorID)
+      ]);
+
+      const termRow = (termRows || []).sort((a, b) => (Number(b.RFQVendorTermID) || 0) - (Number(a.RFQVendorTermID) || 0))[0];
+
+      const detailById = {};
+      (details || []).forEach(d => { detailById[String(d.RFQDetailID)] = d; });
+
+      let itemSubtotal = 0;
+      const winningQuotes = (quotes || []).filter(q => detailById[String(q.RFQDetailID)]);
+      winningQuotes.forEach(q => {
+        itemSubtotal += (Number(q.Qty) || 0) * (Number(q.UnitPrice) || 0);
+      });
+
+      const mobilisasi = Number(termRow?.MobilisasiCost) || 0;
+      const otherService = Number(termRow?.OtherServiceCost) || 0;
+      const ppn = Number(termRow?.PPNAmount) || 0;
+      const totalAmount = itemSubtotal + mobilisasi + otherService + ppn;
+
+      const { data: maxPo } = await supabaseClient
+        .from('purchaseOrder')
+        .select('POID')
+        .order('POID', { ascending: false })
+        .limit(1);
+      const nextPoNum = (maxPo && maxPo.length > 0 && maxPo[0].POID != null) ? (Number(maxPo[0].POID) || 0) + 1 : 1;
+
+      const isSO = winningQuotes.some(q => {
+        const d = detailById[String(q.RFQDetailID)] || {};
+        return (d.ItemGroup || '').toLowerCase().includes('service') || (d.ItemDescription || '').toLowerCase().includes('jasa');
+      });
+      const docType = isSO ? 'SO' : 'PO';
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const docNumber = `${docType}-${dateStr}-${String(nextPoNum).padStart(4, '0')}`;
+
+      const { data: insertedPo, error: poInsErr } = await supabaseClient
+        .from('purchaseOrder')
+        .insert({
+          RFQID: rvRow.RFQID,
+          RFQVendorID: rvRow.RFQVendorID,
+          VendorID: rvRow.VendorID,
+          DocType: docType,
+          DocNumber: docNumber,
+          TotalAmount: totalAmount,
+          Status: 'Draft',
+          CreatedDate: new Date().toISOString(),
+          DeliveryPoint: rfqRow ? rfqRow.DeliveryPoint : null
+        })
+        .select('POID')
+        .single();
+
+      if (!poInsErr && insertedPo) {
+        const newPoId = insertedPo.POID;
+        const podItems = winningQuotes.map(q => {
+          const d = detailById[String(q.RFQDetailID)] || {};
+          const qty = Number(q.Qty) || 0;
+          const unitPrice = Number(q.UnitPrice) || 0;
+          return {
+            POID: newPoId,
+            RFQDetailID: q.RFQDetailID,
+            ItemDescription: d.ItemDescription || '-',
+            Unit: d.Unit || '',
+            Qty: qty,
+            UnitPrice: unitPrice,
+            Subtotal: qty * unitPrice,
+            VendorDeliveryDate: q.VendorDeliveryDate || null,
+            ItemGroup: d.ItemGroup || null,
+            ItemID: d.ItemID || null
+          };
+        });
+
+        if (podItems.length > 0) {
+          await supabaseClient.from('purchaseOrderDetail').insert(podItems);
+        }
+      }
+    } catch (err) {
+      console.warn('generateDraftPoFromRfqVendor error:', err);
     }
   }
 
