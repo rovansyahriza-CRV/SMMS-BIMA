@@ -1792,7 +1792,7 @@ async function submitRFQ() {
   const requestIds = Array.from(document.querySelectorAll('.chkRfqRequest:checked')).map(el => Number(el.value));
   const vendorIds = Array.from(document.querySelectorAll('.chkRfqVendor:checked')).map(el => Number(el.value));
   const notes = document.getElementById('rfqNotes').value;
-  const deliveryPoint = document.getElementById('rfqDeliveryPoint').value.trim();
+  const deliveryPoint = document.getElementById('rfqDeliveryPoint')?.value.trim() || '';
 
   if (requestIds.length === 0) { showToast('Pilih minimal 1 item Request', 'error'); return; }
   if (vendorIds.length === 0) { showToast('Pilih minimal 1 vendor', 'error'); return; }
@@ -1805,59 +1805,9 @@ async function submitRFQ() {
     const { data, error } = await supabaseClient.rpc('create_rfq_and_invite', {
       p_request_ids: requestIds,
       p_vendor_ids: vendorIds,
-      p_created_by: currentUser.nama,
+      p_created_by: (currentUser && currentUser.nama) || 'User',
       p_notes: notes || null,
       p_delivery_point: deliveryPoint || null
-    });
-    if (error) throw error;
-
-    for (const inv of data) {
-      const link = `https://rovansyahriza-crv.github.io/SMMS-BIMA/rfq-quote.html?rfq=${inv.rfqid}&vendor=${inv.vendorid}`;
-      try {
-        await fetch(RFQ_EMAIL_URL, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            action: "SEND_SIMPLE_EMAIL",
-            to: inv.email,
-            subject: `Undangan RFQ ${inv.norfq}`,
-            body: `Anda diundang memberikan penawaran harga untuk RFQ ${inv.norfq}.\n\nBuka link berikut dan masukkan PIN Anda: ${inv.pin}\n\nLink: ${link}`
-          })
-        });
-      } catch (emailErr) {
-        console.warn('Gagal kirim email ke', inv.email, emailErr);
-      }
-    }
-
-    showToast(`RFQ ${data[0]?.norfq || ''} berhasil dibuat, ${data.length} vendor diundang`, 'success');
-    document.getElementById('rfqNotes').value = '';
-    loadRfqCreatePage();
-  } catch (err) {
-    showToast('Gagal membuat RFQ: ' + err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Buat RFQ & Kirim Undangan';
-  }
-}
-
-async function submitRFQ() {
-  const requestIds = Array.from(document.querySelectorAll('.chkRfqRequest:checked')).map(el => Number(el.value));
-  const vendorIds = Array.from(document.querySelectorAll('.chkRfqVendor:checked')).map(el => Number(el.value));
-  const notes = document.getElementById('rfqNotes').value;
-
-  if (requestIds.length === 0) { showToast('Pilih minimal 1 item Request', 'error'); return; }
-  if (vendorIds.length === 0) { showToast('Pilih minimal 1 vendor', 'error'); return; }
-
-  const btn = document.getElementById('btnSubmitRfq');
-  btn.disabled = true;
-  btn.textContent = 'Memproses...';
-
-  try {
-    const { data, error } = await supabaseClient.rpc('create_rfq_and_invite', {
-      p_request_ids: requestIds,
-      p_vendor_ids: vendorIds,
-      p_created_by: currentUser.nama,
-      p_notes: notes || null
     });
     if (error) throw error;
 
@@ -1883,7 +1833,7 @@ async function submitRFQ() {
       btn.textContent = 'Membuat report PDF...';
       const rfqIdForReport = data[0]?.rfqid;
       const noRfqForReport = data[0]?.norfq;
-      const deliveryPointForReport = document.getElementById('rfqDeliveryPoint')?.value.trim() || '';
+      const deliveryPointForReport = deliveryPoint;
 
       const { data: rfqItemRows } = await supabaseClient
         .from('rfqDetail')
