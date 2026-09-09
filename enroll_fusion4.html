@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fusion4 — Pendaftaran Wajah (Face Enrollment)</title>
+  
+  <link rel="icon" type="image/png" href="fusion4.png">
+  <link rel="apple-touch-icon" href="fusion4.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#E04D23">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="driveBridge.js"></script>
+
+  <style>
+    :root {
+      --primary: #E04D23;
+      --navy: #1B365D;
+      --bg: #F7F5F0;
+      --surface: #FFFFFF;
+      --border: #E6DED9;
+      --text: #2A2826;
+      --muted: #7A7571;
+      --success: #27AE60;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      min-height: 100vh;
+    }
+    .container { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 14px; }
+    .header {
+      background: linear-gradient(135deg, var(--navy) 0%, #12243E 100%);
+      color: #FFF;
+      padding: 20px;
+      border-radius: 16px;
+      text-align: center;
+      box-shadow: 0 6px 20px rgba(27, 54, 93, 0.2);
+    }
+    .header h1 { font-size: 19px; font-weight: 800; }
+    .header p { font-size: 12px; color: #FFA37B; margin-top: 4px; }
+    
+    .card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+    }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+    select, input {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 13.5px;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--primary); }
+
+    .scanner-box {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    .face-oval {
+      position: absolute;
+      width: 55%;
+      height: 72%;
+      border: 2px dashed rgba(255,255,255,0.7);
+      border-radius: 50%;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+      pointer-events: none;
+    }
+
+    .samples-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .sample-box {
+      aspect-ratio: 1/1;
+      background: #EAE6E1;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .sample-box img { width: 100%; height: 100%; object-fit: cover; }
+
+    .btn-primary {
+      width: 100%;
+      background: var(--primary);
+      color: #FFF;
+      border: none;
+      padding: 13px;
+      font-size: 14.5px;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-primary:disabled { background: #CCC; cursor: not-allowed; }
+
+    .btn-secondary {
+      width: 100%;
+      background: #FAF8F5;
+      color: var(--text);
+      border: 1.5px solid var(--border);
+      padding: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .status-msg {
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .status-msg.info { background: #E8F4FD; color: #1E88E5; }
+    .status-msg.success { background: #E8F8F0; color: var(--success); }
+    .status-msg.error { background: #FDE8E8; color: #E53935; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>Face Enrollment (Pendaftaran Wajah)</h1>
+    <p>Sistem Presensi AI & SmartGate — PT BIMA</p>
+  </div>
+
+  <div class="card">
+    <div class="form-group">
+      <label for="selectKaryawan">Pilih Nama Karyawan:</label>
+      <select id="selectKaryawan" onchange="handleKaryawanChange()">
+        <option value="">-- Memuat daftar karyawan... --</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>QrCodeId Karyawan:</label>
+      <input type="text" id="inputQrId" readonly style="background:#F2EFEB; color:#666; font-family:monospace;">
+    </div>
+
+    <div id="statusMsg" class="status-msg info">Memuat model kecerdasan buatan (AI)...</div>
+
+    <div class="scanner-box">
+      <video id="videoElement" playsinline muted autoplay></video>
+      <div class="face-oval"></div>
+      <canvas id="hiddenCanvas" style="display:none;"></canvas>
+    </div>
+
+    <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">Sampel Foto Biometrik (4 Titik):</div>
+    <div class="samples-grid">
+      <div id="sample1" class="sample-box">1</div>
+      <div id="sample2" class="sample-box">2</div>
+      <div id="sample3" class="sample-box">3</div>
+      <div id="sample4" class="sample-box">4</div>
+    </div>
+
+    <button type="button" id="btnCapture" class="btn-primary" onclick="captureSample()" disabled>
+      <span>📸 Ambil Sampel Foto (<span id="sampleCount">0</span>/4)</span>
+    </button>
+
+    <button type="button" id="btnSave" class="btn-primary" style="background:#27AE60; display:none; margin-top:8px;" onclick="saveEnrollment()">
+      <span>💾 Simpan ke Supabase Cloud</span>
+    </button>
+
+    <button type="button" class="btn-secondary" onclick="switchCamera()">
+      <span>🔄 Ganti Kamera (Depan/Belakang)</span>
+    </button>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let currentFacingMode = 'user';
+  let videoStream = null;
+  let karyawanList = [];
+  let capturedDescriptors = [];
+  let capturedImages = [];
+  let isModelsLoaded = false;
+
+  const video = document.getElementById('videoElement');
+  const canvas = document.getElementById('hiddenCanvas');
+  const statusMsg = document.getElementById('statusMsg');
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    await initModels();
+    await loadKaryawanList();
+    await startCamera();
+  });
+
+  async function initModels() {
+    try {
+      try {
+        if (faceapi.tf) {
+          if (typeof faceapi.tf.enableProdMode === 'function') faceapi.tf.enableProdMode();
+          const env = faceapi.tf.ENV || (typeof faceapi.tf.env === 'function' ? faceapi.tf.env() : null);
+          if (env && typeof env.set === 'function') {
+            try { env.set('WEBGL_PACK', false); } catch (e) {}
+            try { env.set('WEBGL_FORCE_F16_TEXTURES', false); } catch (e) {}
+            try { env.set('WEBGL_CHECK_NUMERICAL_PROBLEMS', false); } catch (e) {}
+          }
+        }
+      } catch (tfErr) {
+        console.warn('TF backend flag init:', tfErr);
+      }
+
+      const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights";
+      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+      isModelsLoaded = true;
+      setStatus("Model AI siap. Pilih karyawan dan posisikan wajah di oval.", "info");
+      document.getElementById('btnCapture').disabled = false;
+    } catch (err) {
+      setStatus("Gagal memuat model AI: " + err.message, "error");
+    }
+  }
+
+  async function loadKaryawanList() {
+    const sel = document.getElementById('selectKaryawan');
+    try {
+      const { data, error } = await supabaseClient
+        .from('karyawanTbl')
+        .select('Id, NamaPersonnel, QrCodeId, Kualifikasi')
+        .order('NamaPersonnel', { ascending: true });
+
+      if (error) throw error;
+      karyawanList = data || [];
+      sel.innerHTML = '<option value="">-- Pilih Karyawan --</option>' +
+        karyawanList.map(k => `<option value="${k.Id}">${k.NamaPersonnel} (${k.Kualifikasi || 'Karyawan'})</option>`).join('');
+    } catch (err) {
+      sel.innerHTML = '<option value="">Gagal memuat karyawan</option>';
+    }
+  }
+
+  function handleKaryawanChange() {
+    const sel = document.getElementById('selectKaryawan');
+    const kar = karyawanList.find(k => k.Id == sel.value);
+    document.getElementById('inputQrId').value = kar ? (kar.QrCodeId || '-') : '';
+    resetSamples();
+  }
+
+  async function startCamera() {
+    if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      video.srcObject = videoStream;
+      await video.play();
+    } catch (e) {
+      setStatus("Gagal akses kamera: " + e.message, "error");
+    }
+  }
+
+  async function switchCamera() {
+    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    await startCamera();
+  }
+
+  async function captureSample() {
+    const qrId = document.getElementById('inputQrId').value;
+    if (!qrId || qrId === '-') {
+      alert("Pilih nama karyawan terlebih dahulu.");
+      return;
+    }
+
+    setStatus("Mendeteksi wajah...", "info");
+
+    // Capture snapshot image for detection & thumbnail (Universal Samsung Exynos fix)
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+    let detection = null;
+    const doInference = async () => {
+      return await faceapi
+        .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+    };
+
+    try {
+      detection = await doInference();
+    } catch (e) {
+      if (faceapi.tf && faceapi.tf.getBackend() !== 'cpu') {
+        await faceapi.tf.setBackend('cpu');
+        detection = await doInference();
+      }
+    }
+
+    if (!detection) {
+      setStatus("Wajah tidak terdeteksi. Posisikan wajah tepat di tengah oval.", "error");
+      return;
+    }
+
+    capturedDescriptors.push(detection.descriptor);
+    capturedImages.push(dataUrl);
+
+    const count = capturedDescriptors.length;
+    document.getElementById('sampleCount').textContent = count;
+
+    const sampleEl = document.getElementById('sample' + count);
+    if (sampleEl) sampleEl.innerHTML = `<img src="${dataUrl}">`;
+
+    if (count >= 4) {
+      document.getElementById('btnCapture').style.display = 'none';
+      document.getElementById('btnSave').style.display = 'flex';
+      setStatus("4 Sampel foto siap. Klik 'Simpan ke Supabase Cloud'.", "success");
+    } else {
+      setStatus(`Sampel ${count}/4 tersimpan. Ambil sampel berikutnya.`, "info");
+    }
+  }
+
+  function resetSamples() {
+    capturedDescriptors = [];
+    capturedImages = [];
+    document.getElementById('sampleCount').textContent = '0';
+    for (let i = 1; i <= 4; i++) {
+      const el = document.getElementById('sample' + i);
+      if (el) el.innerHTML = i;
+    }
+    document.getElementById('btnCapture').style.display = 'flex';
+    document.getElementById('btnSave').style.display = 'none';
+  }
+
+  async function saveEnrollment() {
+    const sel = document.getElementById('selectKaryawan');
+    const kar = karyawanList.find(k => k.Id == sel.value);
+    if (!kar) return;
+
+    const btn = document.getElementById('btnSave');
+    btn.disabled = true;
+    btn.textContent = "Menyimpan ke Database...";
+    setStatus("Sedang menyimpan biometrik ke Supabase...", "info");
+
+    // Hitung rata-rata 128-D vector descriptor
+    const avgDescriptor = new Array(128).fill(0);
+    capturedDescriptors.forEach(desc => {
+      desc.forEach((v, idx) => { avgDescriptor[idx] += v; });
+    });
+    for (let i = 0; i < 128; i++) {
+      avgDescriptor[i] = Math.round((avgDescriptor[i] / capturedDescriptors.length) * 100000) / 100000;
+    }
+
+    try {
+      // 1. Simpan ke Supabase via RPC save_face_descriptor
+      const { data, error } = await supabaseClient.rpc('save_face_descriptor', {
+        p_qrcode: kar.QrCodeId,
+        p_nama: kar.NamaPersonnel,
+        p_descriptor: avgDescriptor
+      });
+
+      if (error) {
+        console.warn('RPC direct error, fallback to table insert:', error.message);
+        // Fallback insert/upsert
+        await supabaseClient.from('faceDescriptorTbl').upsert({
+          QrCodeId: kar.QrCodeId.toUpperCase().trim(),
+          NamaPersonnel: kar.NamaPersonnel,
+          Descriptor: avgDescriptor,
+          UpdatedAt: new Date().toISOString()
+        }, { onConflict: 'QrCodeId' });
+      }
+
+      setStatus(`✅ Sukses! Wajah ${kar.NamaPersonnel} berhasil terdaftar di Supabase!`, "success");
+      btn.textContent = "✅ Berhasil Disimpan";
+      setTimeout(() => {
+        resetSamples();
+        sel.value = "";
+        document.getElementById('inputQrId').value = "";
+        btn.textContent = "💾 Simpan ke Supabase Cloud";
+        btn.disabled = false;
+      }, 3000);
+
+    } catch (err) {
+      setStatus("Gagal menyimpan ke Supabase: " + err.message, "error");
+      btn.disabled = false;
+      btn.textContent = "💾 Simpan ke Supabase Cloud";
+    }
+  }
+
+  function setStatus(msg, type) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg ' + (type || 'info');
+  }
+</script>
+
+</body>
+</html>
+
