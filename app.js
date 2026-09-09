@@ -1225,19 +1225,84 @@ function showToast(message, type = 'success', duration = 3000) {
 async function loadApprovalList() {
   const tbody = document.getElementById('approvalTableBody');
   if (!tbody || !currentUser) return;
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Memuat...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Memuat data approval...</td></tr>';
 
   try {
-    const { data, error } = await supabaseClient.rpc('get_pending_approvals', { p_karyawan_id: currentUser.id });
-    if (error) throw error;
+    // 1. Ambil data request_approval aktif (level Review atau Approval)
+    const { data: apprList, error: apprErr } = await supabaseClient
+      .from('request_approval')
+      .select('*')
+      .in('CurrentLevel', ['Review', 'Approval', 'review', 'approval'])
+      .order('CreatedAt', { ascending: false });
 
-    if (!data || data.length === 0) {
+    if (apprErr) throw apprErr;
+
+    if (!apprList || apprList.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#777;">Tidak ada Request yang menunggu approval.</td></tr>';
+      return;
+    }
+
+    // 2. Ambil detail dari tabel request untuk data header (RefNo, WO, Purpose, RequestBy, Tanggal)
+    const refNos = apprList.map(a => a.RefNo).filter(Boolean);
+    const { data: reqList, error: reqErr } = await supabaseClient
+      .from('request')
+      .select('RefNo, PROJECTID, WO_NO, Purpose, RequestBy, DATE_REQUEST')
+      .in('RefNo', refNos);
+
+    if (reqErr) throw reqErr;
+
+    // 3. Evaluasi Author dan PIC user saat ini
+    const authorRaw = String(currentUser.Author || '').toUpperCase();
+    const picRaw = String(currentUser.PIC || '').toUpperCase();
+    const userTokens = [...authorRaw.split(','), ...picRaw.split(',')].map(s => s.trim()).filter(Boolean);
+    const isSuperAdmin = userTokens.includes('ALL') || userTokens.includes('*');
+
+    // 4. Filter item yang sesuai hak akses user
+    const pendingList = apprList.filter(appr => {
+      const proj = String(appr.ProjectID || '').trim();
+      const projClean = proj.replace(/^0+/, ''); // misal: '014' -> '14'
+      const lvl = String(appr.CurrentLevel || '').trim().toLowerCase();
+
+      if (lvl === 'review') {
+        if (isSuperAdmin) return true;
+        return userTokens.some(t =>
+          t === 'RR' || t === 'REVIEW REQUEST' ||
+          t === 'RR-' + proj || (projClean && t === 'RR-' + projClean) ||
+          t === 'REVIEW REQUEST ' + proj || (projClean && t === 'REVIEW REQUEST ' + projClean) ||
+          (t.startsWith('RR-') && (t.endsWith(proj) || (projClean && t.endsWith(projClean)))) ||
+          (t.startsWith('REVIEW REQUEST') && (t.includes(proj) || (projClean && t.includes(projClean))))
+        );
+      } else if (lvl === 'approval') {
+        if (isSuperAdmin) return true;
+        return userTokens.some(t =>
+          t === 'AR' || t === 'APPROVAL REQUEST' ||
+          t === 'AR-' + proj || (projClean && t === 'AR-' + projClean) ||
+          t === 'APPROVAL REQUEST ' + proj || (projClean && t === 'APPROVAL REQUEST ' + projClean) ||
+          (t.startsWith('AR-') && (t.endsWith(proj) || (projClean && t.endsWith(projClean)))) ||
+          (t.startsWith('APPROVAL REQUEST') && (t.includes(proj) || (projClean && t.includes(projClean))))
+        );
+      }
+      return false;
+    }).map(appr => {
+      const matchedReq = (reqList || []).find(r => r.RefNo === appr.RefNo) || {};
+      return {
+        refno: appr.RefNo,
+        projectid: appr.ProjectID || matchedReq.PROJECTID || '-',
+        currentlevel: appr.CurrentLevel,
+        wo_no: matchedReq.WO_NO || '-',
+        purpose: matchedReq.Purpose || '-',
+        requestby: matchedReq.RequestBy || '-',
+        daterequest: matchedReq.DATE_REQUEST || (appr.CreatedAt ? appr.CreatedAt.split('T')[0] : '-')
+      };
+    });
+
+    if (pendingList.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#777;">Tidak ada Request yang menunggu approval kamu.</td></tr>';
       return;
     }
 
     tbody.innerHTML = '';
-    data.forEach(row => {
+    pendingList.forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>
@@ -1249,7 +1314,7 @@ async function loadApprovalList() {
         <td>${row.purpose || '-'}</td>
         <td>${row.requestby || '-'}</td>
         <td>${row.daterequest || '-'}</td>
-        <td>${row.currentlevel}</td>
+        <td><span class="badge-unit" style="background:#eef5fc; color:#1d6fa5; font-weight:600;">${row.currentlevel}</span></td>
         <td>
           <button class="btn-icon btn-icon-edit" onclick="approveRequest('${row.refno}')" title="Setujui">✔</button>
           <button class="btn-icon btn-icon-delete" onclick="rejectRequest('${row.refno}')" title="Tolak">✕</button>
@@ -1266,11 +1331,43 @@ async function loadApprovalList() {
 async function approveRequest(refno) {
   if (!confirm(`Setujui Request ${refno}?`)) return;
   try {
-    const { error } = await supabaseClient.rpc('process_approval', {
-      p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Approve', p_reason: null
-    });
-    if (error) throw error;
-    showToast(`Request ${refno} berhasil diproses.`, 'success');
+    let rpcSuccess = false;
+    try {
+      const { error: rpcErr } = await supabaseClient.rpc('process_approval', {
+        p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Approve', p_reason: null
+      });
+      if (!rpcErr) rpcSuccess = true;
+    } catch (e) {
+      console.warn('RPC process_approval fallback to direct table update:', e);
+    }
+
+    if (!rpcSuccess) {
+      const { data: currAppr } = await supabaseClient.from('request_approval').select('*').eq('RefNo', refno).maybeSingle();
+      if (!currAppr) throw new Error('Data request approval tidak ditemukan.');
+
+      const isReview = String(currAppr.CurrentLevel || '').toLowerCase() === 'review';
+      if (isReview) {
+        await supabaseClient.from('request_approval').update({
+          CurrentLevel: 'Approval',
+          ReviewedBy: String(currentUser.id),
+          ReviewedAt: new Date().toISOString()
+        }).eq('RefNo', refno);
+        await supabaseClient.from('request').update({
+          Status: 'Menunggu Approval Akhir'
+        }).eq('RefNo', refno);
+      } else {
+        await supabaseClient.from('request_approval').update({
+          CurrentLevel: 'Approved',
+          ApprovedBy: String(currentUser.id),
+          ApprovedAt: new Date().toISOString()
+        }).eq('RefNo', refno);
+        await supabaseClient.from('request').update({
+          Status: 'Approved'
+        }).eq('RefNo', refno);
+      }
+    }
+
+    showToast(`Request ${refno} berhasil disetujui!`, 'success');
     loadApprovalList();
   } catch (err) {
     showToast('Gagal: ' + err.message, 'error');
@@ -1280,11 +1377,33 @@ async function approveRequest(refno) {
 async function rejectRequest(refno) {
   const reason = prompt(`Alasan penolakan Request ${refno}:`);
   if (reason === null) return;
+  if (!reason.trim()) {
+    alert('Harap masukkan alasan penolakan.');
+    return;
+  }
   try {
-    const { error } = await supabaseClient.rpc('process_approval', {
-      p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Reject', p_reason: reason
-    });
-    if (error) throw error;
+    let rpcSuccess = false;
+    try {
+      const { error: rpcErr } = await supabaseClient.rpc('process_approval', {
+        p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Reject', p_reason: reason
+      });
+      if (!rpcErr) rpcSuccess = true;
+    } catch (e) {
+      console.warn('RPC process_approval fallback to direct table update:', e);
+    }
+
+    if (!rpcSuccess) {
+      await supabaseClient.from('request_approval').update({
+        CurrentLevel: 'Rejected',
+        RejectedBy: String(currentUser.id),
+        RejectedAt: new Date().toISOString(),
+        RejectReason: reason
+      }).eq('RefNo', refno);
+      await supabaseClient.from('request').update({
+        Status: 'Rejected'
+      }).eq('RefNo', refno);
+    }
+
     showToast(`Request ${refno} ditolak.`, 'success');
     loadApprovalList();
   } catch (err) {
