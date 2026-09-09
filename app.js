@@ -1945,7 +1945,7 @@ async function loadRfqSelectionDetail(rfqId) {
     { data: vendorMaster, error: vmErr }
   ] = await Promise.all([
     supabaseClient.from('rfqDetail').select('RFQDetailID, RequestID, ItemID, ItemDescription, Unit, Qty').eq('RFQID', rfqId),
-    supabaseClient.from('rfqVendor').select('RFQVendorID, VendorID, ConfirmationStatus, ManagementApproval').eq('RFQID', rfqId).eq('ConfirmationStatus', 'Submitted'),
+    supabaseClient.from('rfqVendor').select('RFQVendorID, VendorID, ConfirmationStatus, ManagementApproval, Notes').eq('RFQID', rfqId).eq('ConfirmationStatus', 'Submitted'),
     supabaseClient.from('rfqQuote').select('RFQDetailID, VendorID, UnitPrice, Qty, VendorDeliveryDate'),
     supabaseClient.from('rfqVendorTerm').select('*'),
     supabaseClient.from('vendor').select('VendorID, VendorName')
@@ -1976,13 +1976,16 @@ async function loadRfqSelectionDetail(rfqId) {
   });
 
   const rfqVendorIdToTerm = {};
-  (termRows || []).forEach(t => { rfqVendorIdToTerm[t.RFQVendorID] = t; });
+  (termRows || []).forEach(t => { 
+    rfqVendorIdToTerm[t.RFQVendorID] = t;
+    rfqVendorIdToTerm[String(t.RFQVendorID)] = t;
+  });
 
   window._rfqSelectionState = { rfqId, items, vendors, quoteMap, vendorIdToName, termByRfqVendorId: rfqVendorIdToTerm };
 
   let html = '<div style="overflow-x:auto;"><table class="data-table" id="tableRfqCompare"><thead><tr>';
-  html += '<th>Item</th><th>Qty</th>';
-  vendors.forEach(v => { html += `<th>${vendorIdToName[v.VendorID] || 'Vendor #' + v.VendorID}</th>`; });
+  html += '<th style="min-width:200px;">Item</th><th style="width:100px;">Qty</th>';
+  vendors.forEach(v => { html += `<th style="min-width:180px; text-align:center;">${vendorIdToName[v.VendorID] || 'Vendor #' + v.VendorID}</th>`; });
   html += '</tr></thead><tbody>';
 
   const sortedItems = [...items].sort((a, b) => (a.ItemDescription || '').localeCompare(b.ItemDescription || ''));
@@ -2000,17 +2003,26 @@ async function loadRfqSelectionDetail(rfqId) {
 
     html += '<tr style="background:#eaf7ea;">';
     if (isFirstOfGroup) {
-      html += `<td rowspan="${descGroupCount[key]}" style="vertical-align:top;border-right:2px solid #c8dfc8;">${key}</td>`;
+      html += `<td rowspan="${descGroupCount[key]}" style="vertical-align:top;border-right:2px solid #c8dfc8; font-weight:700;">${key}</td>`;
     }
-    html += `<td>${item.Qty || '-'} ${item.Unit || ''}</td>`;
+    html += `<td style="font-weight:600;">${item.Qty || '-'} ${item.Unit || ''}</td>`;
     vendors.forEach(v => {
       const q = quoteMap[item.RFQDetailID + '|' + v.VendorID];
       if (q) {
         const subtotal = (Number(q.UnitPrice) || 0) * (Number(q.Qty) || 0);
-        html += `<td style="text-align:center;">
+        let delivHtml = '';
+        if (q.VendorDeliveryDate) {
+          const d = new Date(q.VendorDeliveryDate);
+          const dStr = isNaN(d.getTime()) ? String(q.VendorDeliveryDate) : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+          delivHtml = `<div style="font-size:11.5px; color:#1B365D; margin-top:4px; font-weight:600;">🚚 Kirim: ${dStr}</div>`;
+        }
+
+        html += `<td style="text-align:center; padding:10px 8px;">
           <label style="display:block;cursor:pointer;">
             <input type="radio" name="item-${item.RFQDetailID}" value="${v.VendorID}" onchange="recalcVendorTotals()">
-            Rp ${Number(q.UnitPrice).toLocaleString('id-ID')} x ${q.Qty}<br><strong>Rp ${subtotal.toLocaleString('id-ID')}</strong>
+            <div style="font-size:13px; font-weight:600; color:#333;">Rp ${Number(q.UnitPrice).toLocaleString('id-ID')} x ${q.Qty}</div>
+            <div style="font-size:13.5px; font-weight:800; color:#E04D23; margin-top:2px;">Rp ${subtotal.toLocaleString('id-ID')}</div>
+            ${delivHtml}
           </label>
         </td>`;
       } else {
@@ -2024,13 +2036,14 @@ async function loadRfqSelectionDetail(rfqId) {
     { label: 'Mobilisasi', get: t => t ? Number(t.MobilisasiCost) || 0 : 0, money: true },
     { label: 'Biaya Lain', get: t => t ? Number(t.OtherServiceCost) || 0 : 0, money: true },
     { label: 'PPN', get: t => t ? Number(t.PPNAmount) || 0 : 0, money: true },
-    { label: 'Termin Pembayaran', get: t => t ? (t.PaymentTermType || '-') + (t.DPPercentage ? ' (DP ' + t.DPPercentage + '%)' : '') : '-', money: false }
+    { label: 'Termin Pembayaran', get: t => t ? (t.PaymentTermType || '-') + (t.DPPercentage ? ' (DP ' + t.DPPercentage + '%)' : '') : '-', money: false },
+    { label: 'Catatan Vendor', get: (t, v) => (v && v.Notes) ? v.Notes : (t && t.Notes ? t.Notes : '-'), money: false }
   ];
   rowsInfo.forEach(row => {
-    html += `<tr><td colspan="2">${row.label}</td>`;
+    html += `<tr><td colspan="2" style="font-weight:600;">${row.label}</td>`;
     vendors.forEach(v => {
-      const term = rfqVendorIdToTerm[v.RFQVendorID];
-      const val = row.get(term);
+      const term = rfqVendorIdToTerm[v.RFQVendorID] || rfqVendorIdToTerm[String(v.RFQVendorID)];
+      const val = row.get(term, v);
       html += `<td style="text-align:center;">${row.money ? 'Rp ' + Number(val).toLocaleString('id-ID') : val}</td>`;
     });
     html += '</tr>';
@@ -2038,7 +2051,7 @@ async function loadRfqSelectionDetail(rfqId) {
 
   html += '<tr style="font-weight:bold;background:#f5f5f5;"><td colspan="2">TOTAL</td>';
   vendors.forEach(v => {
-    html += `<td id="total-${v.VendorID}" style="text-align:center;">Rp 0</td>`;
+    html += `<td id="total-${v.VendorID}" style="text-align:center; font-size:14px; color:#1B365D;">Rp 0</td>`;
   });
   html += '</tr>';
 
@@ -2051,7 +2064,7 @@ async function loadRfqSelectionDetail(rfqId) {
   html += '</tbody></table></div>';
 
   html += `<div style="margin-top:16px;"><textarea id="selectionNotes" placeholder="Catatan (opsional)" style="width:100%;min-height:60px;padding:8px;"></textarea></div>`;
-  html += `<button type="button" style="margin-top:12px;padding:10px 20px;background:#e05a2b;color:#fff;border:none;border-radius:6px;cursor:pointer;" onclick="submitVendorSelection()">Usulkan Pemenang</button>`;
+  html += `<button type="button" style="margin-top:12px;padding:10px 20px;background:#e05a2b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;" onclick="submitVendorSelection()">Usulkan Pemenang</button>`;
 
   content.innerHTML = html;
 }
