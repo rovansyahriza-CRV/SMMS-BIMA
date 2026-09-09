@@ -302,37 +302,25 @@ function initCategoryTabs() {
 }
 
 async function loadCurrentCategory() {
-  // Group options hanya dimuat jika user punya akses input
-  if (currentUser && currentUser.canInputMaster) {
-    await loadGroupOptions();
-  }
   await loadCategoryData();
 }
 
 // #1 - loadGroupOptions()
-async function loadGroupOptions() {
+function loadGroupOptions() {
   const datalist = document.getElementById('groupOptions');
   if (!datalist) return;
   datalist.innerHTML = '';
 
-  try {
-    const tableName = RESOURCE_TABLE_MAP[activeGroupSheet] || RESOURCE_TABLE_MAP[activeSheet];
-    const { data, error } = await supabaseClient.from(tableName).select('*');
-    if (error) throw error;
-
-    const seen = new Set();
-    (data || []).forEach(item => {
-      const groupName = item.Group || item.GroupName || item.Name || Object.values(item)[0];
-      if (groupName && !seen.has(groupName)) {
-        seen.add(groupName);
-        const option = document.createElement('option');
-        option.value = String(groupName).trim();
-        datalist.appendChild(option);
-      }
-    });
-  } catch (error) {
-    console.error(`Gagal memuat ${activeGroupSheet}:`, error);
-  }
+  const seen = new Set();
+  (rawCategoryData || []).forEach(item => {
+    const groupName = item.Group || item.GroupName || item.Name;
+    if (groupName && !seen.has(groupName)) {
+      seen.add(groupName);
+      const option = document.createElement('option');
+      option.value = String(groupName).trim();
+      datalist.appendChild(option);
+    }
+  });
 }
 
 async function loadCategoryData() {
@@ -341,13 +329,13 @@ async function loadCategoryData() {
   
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Memuat data...</td></tr>';
 
-// #2 - loader tabelStok (ganti isi try-nya)
   try {
     const tableName = RESOURCE_TABLE_MAP[activeSheet];
     const { data, error } = await supabaseClient.from(tableName).select('*');
     if (error) throw error;
 
     rawCategoryData = Array.isArray(data) ? data : [];
+    loadGroupOptions();
     applyFilters();
     updateSpecificationOptions();
   } catch (error) {

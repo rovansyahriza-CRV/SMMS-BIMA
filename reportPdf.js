@@ -191,6 +191,11 @@ async function buildReportPdf(config) {
   y += 8;
 
   // ---- Info grid 2 kolom ----
+  // CATATAN: dua kolom ini cuma buat pasangan label/value PENDEK (No, tanggal, nama, status,
+  // dst) -- value di sini di-render satu baris, rata kanan dalam lebar kolomnya sendiri. Kalau
+  // ada field yang isinya bisa jadi kalimat panjang (keperluan, catatan bebas), JANGAN taruh di
+  // sini -- pakai config.noteBlocks di bawah, soalnya value panjang bakal nabrak kolom
+  // sebelahnya (sempat kejadian beneran: "Catatan" nutupin "Diusulkan oleh").
   const colW = (pageW - marginX * 2 - 10) / 2;
   doc.setFontSize(9);
   config.infoRows.forEach((row, i) => {
@@ -209,6 +214,27 @@ async function buildReportPdf(config) {
     doc.line(x, ry + 1.5, x + colW, ry + 1.5);
   });
   y += Math.ceil(config.infoRows.length / 2) * 7 + 6;
+
+  // ---- Blok catatan/teks bebas full-width (opsional, bisa lebih dari satu) ----
+  if (config.noteBlocks && config.noteBlocks.length) {
+    config.noteBlocks.forEach((nb) => {
+      if (!nb || !nb.text) return;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...hexToRgb(C.INK_SOFT));
+      doc.text(String(nb.label), marginX, y);
+      y += 5;
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...hexToRgb(C.INK));
+      const wrapped = doc.splitTextToSize(String(nb.text), pageW - marginX * 2);
+      doc.text(wrapped, marginX, y);
+      y += wrapped.length * 4.2 + 1.5;
+      doc.setDrawColor(...hexToRgb(C.LINE));
+      doc.setLineWidth(0.2);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 6;
+    });
+  }
 
   // ---- Tabel item ----
   y = drawSectionTitle(doc, config.itemsTitle, marginX, y, pageW, marginX);
@@ -351,8 +377,8 @@ async function generateRequestReportPdf(data) {
       ["Tanggal Request", data.tanggalRequest],
       ["Diajukan oleh", data.diajukanOleh],
       ["Status", data.status],
-      ["Keperluan", data.keperluan],
     ],
+    noteBlocks: [{ label: "Keperluan", text: data.keperluan }],
     itemsTitle: "Detail Item Diminta",
     itemsHead: ["No", "Kode Item", "Deskripsi", { text: "Qty", align: "right" }],
     itemsColWidths: [10, 24, 108, 36],
@@ -452,6 +478,103 @@ async function generateEndUserReceivingReportPdf(data) {
     signatures: [
       { role: "Diserahkan oleh", name: data.diserahkanOleh, sub: data.diserahkanOlehSub, qrPayload: data.diserahkanOlehQr },
       { role: "Diterima oleh", name: data.diterimaOleh, sub: data.diterimaOlehSub || "End User", qrPayload: data.diterimaOlehQr },
+    ],
+  };
+
+  return buildReportPdf(config);
+}
+
+// ---- 4. Report RFQ (dibuat pas RFQ dikirim ke vendor -- item yang diminta + vendor diundang) ----
+async function generateRfqReportPdf(data) {
+  // data: { noRfq, tanggalRfq, createdBy, createdBySub, createdByQr, notes, deliveryPoint,
+  //         items:[{noRequest, kode, desk, qty, unit}], vendors:[{nama, email, status}] }
+  const usableW = 210 - 16 * 2;
+  const noColW = 8, reqNoColW = 44, kodeColW = 20, qtyColW = 20;
+  const deskColW = usableW - noColW - reqNoColW - kodeColW - qtyColW;
+
+  const itemsRows = data.items.map((it, i) => [
+    String(i + 1),
+    it.noRequest || "-",
+    it.kode || "-",
+    it.desk,
+    { text: `${it.qty} ${it.unit || ""}`, align: "right" },
+  ]);
+
+  const vendorColW2 = [56, 70, 42];
+
+  const config = {
+    eyebrow: "Request for quotation",
+    title: "Laporan RFQ",
+    infoRows: [
+      ["No. RFQ", data.noRfq],
+      ["Tanggal RFQ", data.tanggalRfq],
+      ["Dibuat oleh", data.createdBy],
+      ["Titik Pengiriman", data.deliveryPoint || "-"],
+    ],
+    noteBlocks: [{ label: "Catatan", text: data.notes }],
+    itemsTitle: "Item yang Di-RFQ-kan",
+    itemsHead: ["No", "No. Request", "Kode Item", "Deskripsi", { text: "Qty", align: "right" }],
+    itemsColWidths: [noColW, reqNoColW, kodeColW, deskColW, qtyColW],
+    itemsRows,
+    extraTable: {
+      title: "Vendor yang Diundang",
+      head: ["Vendor", "Email", "Status Konfirmasi"],
+      colWidths: vendorColW2,
+      rows: data.vendors.map((v) => [v.nama, v.email || "-", v.status || "-"]),
+    },
+    photo: null,
+    signatures: [
+      { role: "Dibuat oleh", name: data.createdBy, sub: data.createdBySub, qrPayload: data.createdByQr },
+    ],
+  };
+
+  return buildReportPdf(config);
+}
+
+// ---- 5. Report Vendor Selection (dibuat pas buyer usulkan pemenang per item) ----
+async function generateVendorSelectionReportPdf(data) {
+  // data: { noRfq, tanggalSeleksi, diusulkanOleh, diusulkanOlehSub, diusulkanOlehQr, catatan,
+  //         items:[{desk, qty, unit, vendorPemenang, hargaSatuan, subtotal}],
+  //         vendorSummary:[{nama, total}] }
+  const usableW = 210 - 16 * 2;
+  const noColW = 8, qtyColW = 18, vendorColW = 34, hargaColW = 30, subtotalColW = 30;
+  const deskColW = usableW - noColW - qtyColW - vendorColW - hargaColW - subtotalColW;
+
+  const fmtRp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
+
+  const itemsRows = data.items.map((it, i) => [
+    String(i + 1),
+    it.desk,
+    { text: `${it.qty} ${it.unit || ""}`, align: "right" },
+    it.vendorPemenang || "-",
+    { text: fmtRp(it.hargaSatuan), align: "right" },
+    { text: fmtRp(it.subtotal), align: "right" },
+  ]);
+
+  const config = {
+    eyebrow: "Seleksi vendor rfq",
+    title: "Laporan Seleksi Vendor",
+    infoRows: [
+      ["No. RFQ", data.noRfq],
+      ["Tanggal Seleksi", data.tanggalSeleksi],
+      ["Diusulkan oleh", data.diusulkanOleh],
+    ],
+    noteBlocks: [{ label: "Catatan", text: data.catatan }],
+    itemsTitle: "Hasil Seleksi Per Item",
+    itemsHead: ["No", "Deskripsi", { text: "Qty", align: "right" }, "Vendor Pemenang", { text: "Harga Satuan", align: "right" }, { text: "Subtotal", align: "right" }],
+    itemsColWidths: [noColW, deskColW, qtyColW, vendorColW, hargaColW, subtotalColW],
+    itemsRows,
+    extraTable: data.vendorSummary && data.vendorSummary.length
+      ? {
+          title: "Ringkasan Total per Vendor Terpilih",
+          head: ["Vendor", { text: "Total", align: "right" }],
+          colWidths: [89, 89],
+          rows: data.vendorSummary.map((v) => [v.nama, { text: fmtRp(v.total), align: "right" }]),
+        }
+      : null,
+    photo: null,
+    signatures: [
+      { role: "Diusulkan oleh", name: data.diusulkanOleh, sub: data.diusulkanOlehSub, qrPayload: data.diusulkanOlehQr },
     ],
   };
 

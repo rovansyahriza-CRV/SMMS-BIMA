@@ -220,7 +220,6 @@ function withTimeout(promise, ms, timeoutMessage) {
 }
 
 function evaluateFaceBox(box) {
-  if (!video.videoWidth || !video.videoHeight) return { ok: false, reason: "Kamera belum siap" };
   if (!video.videoWidth || !video.videoHeight) return { ok: true, reason: "Posisi bagus" };
   const widthRatio = box.width / video.videoWidth;
   const centerX = box.x + box.width / 2;
@@ -228,9 +227,6 @@ function evaluateFaceBox(box) {
   const offsetX = Math.abs(centerX - video.videoWidth / 2) / video.videoWidth;
   const offsetY = Math.abs(centerY - video.videoHeight / 2) / video.videoHeight;
 
-  if (widthRatio < 0.25) return { ok: false, reason: "Terlalu jauh, dekatkan wajah" };
-  if (widthRatio > 0.75) return { ok: false, reason: "Terlalu dekat, jauhkan sedikit" };
-  if (offsetX > 0.22 || offsetY > 0.22) return { ok: false, reason: "Geser wajah ke tengah" };
   if (widthRatio < 0.15) return { ok: false, reason: "Terlalu jauh, dekatkan wajah ke kamera" };
   if (widthRatio > 0.95) return { ok: false, reason: "Terlalu dekat, jauhkan sedikit dari kamera" };
   if (offsetX > 0.38 || offsetY > 0.38) return { ok: false, reason: "Posisikan wajah lebih ke tengah" };
@@ -261,6 +257,14 @@ document.getElementById('btnShowQrOption').onclick = () => {
 let faceModelsLoaded = false;
 async function loadFaceModels() {
   if (faceModelsLoaded) return;
+  try {
+    if (faceapi.tf && faceapi.tf.ENV) {
+      faceapi.tf.ENV.set('WEBGL_PACK', false);
+      faceapi.tf.ENV.set('WEBGL_CHECK_NUMERICAL_PROBLEMS', false);
+      faceapi.tf.ENV.set('WEBGL_FORCE_F16_TEXTURES', false);
+      faceapi.tf.enableProdMode();
+    }
+  } catch (e) {}
   const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights";
   await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
   await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
@@ -452,18 +456,26 @@ btnScanFace.onclick = async () => {
     const snapCanvas = document.createElement('canvas');
     snapCanvas.width = video.videoWidth || 640;
     snapCanvas.height = video.videoHeight || 480;
-    const snapCtx = snapCanvas.getContext('2d', { willReadFrequently: true });
+    const snapCtx = snapCanvas.getContext('2d');
     snapCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
 
-    detection = await withTimeout(
-      faceapi.detectSingleFace(snapCanvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+    const doInference = async () => {
+      return await faceapi
+        .detectSingleFace(snapCanvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
         .withFaceLandmarks()
-        .withFaceDescriptor(),
-      15000,
-      "Deteksi wajah timeout (15 detik). Coba lagi."
-    );
+        .withFaceDescriptor();
+    };
+
+    try {
+      detection = await withTimeout(doInference(), 6000, "WebGL stall");
+    } catch (gpuErr) {
+      if (faceapi.tf && faceapi.tf.getBackend() !== 'cpu') {
+        await faceapi.tf.setBackend('cpu');
+        detection = await withTimeout(doInference(), 8000, "Timeout deteksi wajah.");
+      }
+    }
   } catch (e) {
-    setStatus("❌ " + e.message, "fail");
+    setStatus("❌ " + (e.message || "Gagal deteksi wajah. Coba lagi."), "fail");
     btnScanFace.disabled = false;
     return;
   }
@@ -488,7 +500,7 @@ btnScanFace.onclick = async () => {
       const dist = desc ? faceapi.euclideanDistance(detection.descriptor, desc) : 999;
       return {
         qrcodeid: p.qrCodeId || p.qrcodeid,
-        nama: p.nama,
+        nama: p.nama || p.namapersonnel || p.NamaPersonnel,
         distance: dist
       };
     }).filter(p => !isNaN(p.distance) && p.distance < 900).sort((a, b) => a.distance - b.distance);
@@ -516,7 +528,7 @@ btnScanFace.onclick = async () => {
       const karRow = Array.isArray(kar) ? kar[0] : kar;
       if (!karRow) { setStatus("❌ Karyawan tidak ditemukan.", "fail"); btnScanFace.disabled = false; return; }
       pendingKarId = karRow.id;
-      pendingKarNama = karRow.nama;
+      pendingKarNama = karRow.nama || karRow.namapersonnel || karRow.NamaPersonnel || best.nama || qrCodeId;
       pendingKarKualifikasi = karRow.kualifikasi || "";
     } catch (e) {
       setStatus("❌ Gagal ambil data karyawan: " + e.message, "fail");
