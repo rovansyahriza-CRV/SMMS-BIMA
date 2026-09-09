@@ -1947,7 +1947,7 @@ async function loadRfqSelectionDetail(rfqId) {
     supabaseClient.from('rfqDetail').select('RFQDetailID, RequestID, ItemID, ItemDescription, Unit, Qty').eq('RFQID', rfqId),
     supabaseClient.from('rfqVendor').select('RFQVendorID, VendorID, ConfirmationStatus, ManagementApproval, Notes').eq('RFQID', rfqId).eq('ConfirmationStatus', 'Submitted'),
     supabaseClient.from('rfqQuote').select('RFQDetailID, VendorID, UnitPrice, Qty, VendorDeliveryDate'),
-    supabaseClient.from('rfqVendorTerm').select('*'),
+    supabaseClient.from('rfqVendorTerm').select('*').order('RFQVendorTermID', { ascending: true }),
     supabaseClient.from('vendor').select('VendorID, VendorName')
   ]);
 
@@ -1976,10 +1976,12 @@ async function loadRfqSelectionDetail(rfqId) {
   });
 
   const rfqVendorIdToTerm = {};
-  (termRows || []).forEach(t => { 
-    rfqVendorIdToTerm[t.RFQVendorID] = t;
-    rfqVendorIdToTerm[String(t.RFQVendorID)] = t;
-  });
+  (termRows || [])
+    .sort((a, b) => (Number(a.RFQVendorTermID) || 0) - (Number(b.RFQVendorTermID) || 0))
+    .forEach(t => { 
+      rfqVendorIdToTerm[t.RFQVendorID] = t;
+      rfqVendorIdToTerm[String(t.RFQVendorID)] = t;
+    });
 
   window._rfqSelectionState = { rfqId, items, vendors, quoteMap, vendorIdToName, termByRfqVendorId: rfqVendorIdToTerm };
 
