@@ -868,8 +868,27 @@ async function handleBatchSubmitRequest(e) {
     btn.disabled = true;
   }
 
+  // Upload foto referensi (opsional) ke Drive dulu, kalau ada dipilih
+  let photoUrls = [];
+  const fotoFiles = document.getElementById('reqFotoReferensi')?.files;
+  if (fotoFiles && fotoFiles.length > 0) {
+    if (btn) btn.textContent = 'Mengunggah foto referensi...';
+    for (const file of Array.from(fotoFiles)) {
+      try {
+        const fileName = `REQ_REF_${Date.now()}_${file.name}`;
+        const uploaded = await uploadToDrive('reports', fileName, file.type || 'image/jpeg', file);
+        photoUrls.push({ url: uploaded.directUrl || uploaded.viewUrl, fileId: uploaded.fileId, fileName: file.name });
+      } catch (fotoErr) {
+        console.error('Gagal upload foto referensi:', fotoErr);
+        alert('Sebagian/semua foto referensi gagal diunggah, tapi request tetap akan dikirim tanpa foto tersebut.\n' + fotoErr.message);
+      }
+    }
+    if (btn) btn.textContent = 'Mengirim Semua Request...';
+  }
+
   const headerData = {
     projectId: document.getElementById('reqProjectID')?.value || '',
+    area: (document.getElementById('reqArea')?.value || '').trim().toUpperCase(),
     woNo: document.getElementById('reqWoNo')?.value || '',
     purpose: document.getElementById('reqPurpose')?.value || '',
     expectedDate: document.getElementById('reqExpectedDate')?.value || null,
@@ -883,6 +902,8 @@ async function handleBatchSubmitRequest(e) {
     itemsPayload.push({
       DATE_REQUEST: new Date().toISOString().split('T')[0],
       PROJECTID: headerData.projectId,
+      Area: headerData.area || null,
+      PhotoUrls: photoUrls.length > 0 ? photoUrls : null,
       WO_NO: headerData.woNo,
       ItemGroup: tr.querySelector('.row-group')?.value || 'Material',
       ItemID: matchedItem ? matchedItem.ID : null,      // <-- baris baru
@@ -907,6 +928,7 @@ async function handleBatchSubmitRequest(e) {
     const { error: approvalError } = await supabaseClient.from('request_approval').insert({
       RefNo: generatedRefNo,
       ProjectID: headerData.projectId,
+      Area: headerData.area || null,
       CurrentLevel: 'Review'
     });
     if (approvalError) throw approvalError;
@@ -943,6 +965,8 @@ async function handleBatchSubmitRequest(e) {
 
     // Reset Form
     document.getElementById('reqProjectID').value = '';
+    document.getElementById('reqArea').value = '';
+    document.getElementById('reqFotoReferensi').value = '';
     document.getElementById('reqWoNo').value = '';
     document.getElementById('reqPurpose').value = '';
     document.getElementById('reqExpectedDate').value = '';
@@ -1378,25 +1402,27 @@ async function loadApprovalList() {
     const pendingList = apprList.filter(appr => {
       const proj = String(appr.ProjectID || '').trim();
       const projClean = proj.replace(/^0+/, ''); // misal: '014' -> '14'
+      const area = String(appr.Area || '').trim().toUpperCase();
+      // Kalau request punya Area, target cocok = proyek+area digabung ("015"+"A" -> "015A").
+      // Kalau request lama / gak pakai Area, tetap fallback ke proyek doang (backward compatible).
+      const targets = area ? [proj + area, (projClean ? projClean + area : null)].filter(Boolean) : [proj, projClean].filter(Boolean);
       const lvl = String(appr.CurrentLevel || '').trim().toLowerCase();
 
       if (lvl === 'review') {
         if (isSuperAdmin) return true;
         return userTokens.some(t =>
           t === 'RR' || t === 'REVIEW REQUEST' ||
-          t === 'RR-' + proj || (projClean && t === 'RR-' + projClean) ||
-          t === 'REVIEW REQUEST ' + proj || (projClean && t === 'REVIEW REQUEST ' + projClean) ||
-          (t.startsWith('RR-') && (t.endsWith(proj) || (projClean && t.endsWith(projClean)))) ||
-          (t.startsWith('REVIEW REQUEST') && (t.includes(proj) || (projClean && t.includes(projClean))))
+          targets.some(tg => t === 'RR-' + tg || t === 'REVIEW REQUEST ' + tg) ||
+          (t.startsWith('RR-') && targets.some(tg => t.endsWith(tg))) ||
+          (t.startsWith('REVIEW REQUEST') && targets.some(tg => t.includes(tg)))
         );
       } else if (lvl === 'approval') {
         if (isSuperAdmin) return true;
         return userTokens.some(t =>
           t === 'AR' || t === 'APPROVAL REQUEST' ||
-          t === 'AR-' + proj || (projClean && t === 'AR-' + projClean) ||
-          t === 'APPROVAL REQUEST ' + proj || (projClean && t === 'APPROVAL REQUEST ' + projClean) ||
-          (t.startsWith('AR-') && (t.endsWith(proj) || (projClean && t.endsWith(projClean)))) ||
-          (t.startsWith('APPROVAL REQUEST') && (t.includes(proj) || (projClean && t.includes(projClean))))
+          targets.some(tg => t === 'AR-' + tg || t === 'APPROVAL REQUEST ' + tg) ||
+          (t.startsWith('AR-') && targets.some(tg => t.endsWith(tg))) ||
+          (t.startsWith('APPROVAL REQUEST') && targets.some(tg => t.includes(tg)))
         );
       }
       return false;
@@ -1405,6 +1431,7 @@ async function loadApprovalList() {
       return {
         refno: appr.RefNo,
         projectid: appr.ProjectID || matchedReq.PROJECTID || '-',
+        area: appr.Area || matchedReq.Area || '',
         currentlevel: appr.CurrentLevel,
         wo_no: matchedReq.WO_NO || '-',
         purpose: matchedReq.Purpose || '-',
