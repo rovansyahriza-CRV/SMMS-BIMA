@@ -1077,7 +1077,10 @@ async function showPendingDeliveries(projCode) {
         });
       });
 
-      card.querySelector('h4').onclick = () => {
+      card.style.cursor = 'pointer';
+      card.onclick = (e) => {
+        // Jangan trigger toggle kalau yang diklik tombol/input di dalam form detail (biar gak ke-collapse pas lagi isi form)
+        if (detailEl.contains(e.target)) return;
         const isOpen = detailEl.style.display === "block";
         document.querySelectorAll('.site-receive-detail').forEach(el => el.style.display = "none");
         document.querySelectorAll('.pending-card').forEach(c => c.classList.remove('selected'));
@@ -1169,7 +1172,7 @@ async function showPendingDeliveries(projCode) {
               noTransaksi: noTrx,
               suratJalanNo,
               tanggalTerima: new Date().toLocaleString('id-ID'),
-              tujuanSite: matchedLocation ? matchedLocation.namalokasi : '-',
+              tujuanSite: first.DestinationSite || '-',
               diterimaOleh: verifiedNama,
               diterimaOlehSub: (verifiedKualifikasi || 'Site') + ': ' + (matchedLocation ? matchedLocation.namalokasi : '-'),
               diterimaOlehQr: `QrCodeID=${qrCodeId}|NoTransaksi=${noTrx}`,
