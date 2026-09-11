@@ -955,6 +955,7 @@ async function handleBatchSubmitRequest(e) {
         items: itemsPayload.map(it => ({ kode: itemCode(it) || (it.ItemGroup || ''), desk: it.ItemDescription, qty: it.QTY, unit: it.UNIT })),
         approvalHistory: [{ tanggal: new Date().toLocaleString('id-ID'), oleh: headerData.requestBy, keterangan: 'Request diajukan' }],
         disetujuiOleh: null,
+        photoLinks: photoUrls.length > 0 ? photoUrls.map((p, i) => ({ label: p.fileName || `Foto ${i + 1}`, url: p.url })) : null,
       });
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${generatedRefNo.replace(/\//g, '-')}.pdf`);

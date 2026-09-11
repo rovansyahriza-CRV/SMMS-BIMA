@@ -260,6 +260,19 @@ async function buildReportPdf(config) {
     y += 8;
   }
 
+  // ---- Foto Referensi (opsional, daftar link -- beda dari "Dokumentasi" foto tunggal di bawah) ----
+  if (config.photoLinks && config.photoLinks.length > 0) {
+    y = drawSectionTitle(doc, "Foto Referensi", marginX, y, pageW, marginX);
+    doc.setFontSize(8.5);
+    config.photoLinks.forEach((p, i) => {
+      doc.setTextColor(...hexToRgb(C.ACCENT || C.INK));
+      doc.textWithLink(`📎 ${p.label || 'Foto ' + (i + 1)}`, marginX, y, { url: p.url });
+      y += 5;
+    });
+    doc.setTextColor(...hexToRgb(C.INK));
+    y += 3;
+  }
+
   // ---- Dokumentasi foto (opsional, null = dilewati) ----
   if (config.photo) {
     y = drawSectionTitle(doc, "Dokumentasi", marginX, y, pageW, marginX);
@@ -406,7 +419,8 @@ async function generateRequestReportPdf(data) {
           rows: data.approvalHistory.map((h) => [h.tanggal, h.oleh, h.keterangan]),
         }
       : null,
-    photo: null, // Report Request gak ada foto
+    photo: null, // Report Request gak ada foto dokumentasi tunggal
+    photoLinks: data.photoLinks || null, // Foto referensi opsional (bisa lebih dari 1), ditampilkan sebagai link
     signatures,
   };
 
