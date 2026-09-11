@@ -789,7 +789,10 @@ async function refreshRequestReportPdf(refno, forcedStatus = null) {
       direviewOlehQr: direviewOlehQr,
       disetujuiOleh: disetujuiOleh,
       disetujuiOlehSub: disetujuiOlehSub,
-      disetujuiOlehQr: disetujuiOlehQr
+      disetujuiOlehQr: disetujuiOlehQr,
+      photoLinks: Array.isArray(firstReq.PhotoUrls) && firstReq.PhotoUrls.length > 0
+        ? firstReq.PhotoUrls.map((p, i) => ({ label: p.fileName || `Foto ${i + 1}`, url: p.url }))
+        : null
     });
 
     const pdfBlob = reportPdfToBlob(pdfDoc);
