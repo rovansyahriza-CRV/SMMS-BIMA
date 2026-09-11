@@ -877,7 +877,8 @@ async function handleBatchSubmitRequest(e) {
       try {
         const fileName = `REQ_REF_${Date.now()}_${file.name}`;
         const uploaded = await uploadToDrive('reports', fileName, file.type || 'image/jpeg', file);
-        photoUrls.push({ url: uploaded.viewUrl || uploaded.directUrl, fileId: uploaded.fileId, fileName: file.name });
+        const clickableUrl = uploaded.fileId ? `https://drive.google.com/file/d/${uploaded.fileId}/view` : (uploaded.viewUrl || uploaded.directUrl);
+        photoUrls.push({ url: clickableUrl, fileId: uploaded.fileId, fileName: file.name });
       } catch (fotoErr) {
         console.error('Gagal upload foto referensi:', fotoErr);
         alert('Sebagian/semua foto referensi gagal diunggah, tapi request tetap akan dikirim tanpa foto tersebut.\n' + fotoErr.message);
