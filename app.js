@@ -877,7 +877,7 @@ async function handleBatchSubmitRequest(e) {
       try {
         const fileName = `REQ_REF_${Date.now()}_${file.name}`;
         const uploaded = await uploadToDrive('reports', fileName, file.type || 'image/jpeg', file);
-        const clickableUrl = uploaded.fileId ? `https://drive.google.com/file/d/${uploaded.fileId}/view` : (uploaded.viewUrl || uploaded.directUrl);
+        const clickableUrl = buildDriveViewUrl(uploaded);
         photoUrls.push({ url: clickableUrl, fileId: uploaded.fileId, fileName: file.name });
       } catch (fotoErr) {
         console.error('Gagal upload foto referensi:', fotoErr);
@@ -960,7 +960,7 @@ async function handleBatchSubmitRequest(e) {
       });
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${generatedRefNo.replace(/\//g, '-')}.pdf`);
-      await supabaseClient.from('request').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('RefNo', generatedRefNo);
+      await supabaseClient.from('request').update({ ReportURL: buildDriveViewUrl(uploadedPdf), ReportFileID: uploadedPdf.fileId }).eq('RefNo', generatedRefNo);
     } catch (reportErr) {
       console.warn('Gagal membuat/upload report PDF:', reportErr);
     }
@@ -1306,14 +1306,19 @@ async function regeneratePoReport(poId, btnEl) {
     // Upload ke Drive
     let directUrl = null;
     try {
-      const uploaded = await uploadBase64ToDrive(
+      const byteChars = atob(pdfBase64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+      const pdfBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+
+      const uploaded = await uploadToDrive(
         'reports',
         `${poHeader.doctype}-${poHeader.docnumber}.pdf`,
         'application/pdf',
-        pdfBase64
+        pdfBlob
       );
-      if (uploaded && uploaded.directUrl) {
-        directUrl = uploaded.directUrl;
+      if (uploaded && uploaded.fileId) {
+        directUrl = buildDriveViewUrl(uploaded);
         await supabaseClient
           .from('purchaseOrder')
           .update({ ReportURL: directUrl, ReportFileID: uploaded.fileId })
@@ -2041,7 +2046,7 @@ async function submitRFQ() {
       });
       const rfqPdfBlob = reportPdfToBlob(rfqPdfDoc);
       const uploadedRfqPdf = await uploadReportPdfToDrive(rfqPdfBlob, `RFQ_${String(noRfqForReport).replace(/\//g, '-')}.pdf`);
-      await supabaseClient.from('rfq').update({ ReportURL: uploadedRfqPdf.directUrl, ReportFileID: uploadedRfqPdf.fileId, Status: 'Menunggu Penawaran Vendor' }).eq('RFQID', rfqIdForReport);
+      await supabaseClient.from('rfq').update({ ReportURL: buildDriveViewUrl(uploadedRfqPdf), ReportFileID: uploadedRfqPdf.fileId, Status: 'Menunggu Penawaran Vendor' }).eq('RFQID', rfqIdForReport);
 
       // Update status item request terkait menjadi 'Dalam Proses RFQ' dan refresh PDF-nya
       await supabaseClient.from('request').update({ Status: 'Dalam Proses RFQ' }).in('ID', requestIds);
@@ -2383,7 +2388,7 @@ async function submitVendorSelection() {
       });
       const vsPdfBlob = reportPdfToBlob(vsPdfDoc);
       const uploadedVsPdf = await uploadReportPdfToDrive(vsPdfBlob, `SELEKSI_${String(noRfqForReport).replace(/\//g, '-')}.pdf`);
-      await supabaseClient.from('rfq').update({ SelectionReportURL: uploadedVsPdf.directUrl, SelectionReportFileID: uploadedVsPdf.fileId }).eq('RFQID', rfqId);
+      await supabaseClient.from('rfq').update({ SelectionReportURL: buildDriveViewUrl(uploadedVsPdf), SelectionReportFileID: uploadedVsPdf.fileId }).eq('RFQID', rfqId);
     } catch (reportErr) {
       console.warn('Gagal membuat/upload report PDF Seleksi Vendor:', reportErr);
     }

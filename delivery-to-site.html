@@ -1121,7 +1121,7 @@ async function showPendingDeliveries(projCode) {
             photoDataUrl = dataUrl;
             btn.textContent = "Mengupload foto...";
             const uploaded = await uploadToDrive("photos", `SR_${noTrx.replace(/\//g, '-')}.jpg`, "image/jpeg", compressedBlob);
-            photoURL = uploaded.directUrl;
+            photoURL = buildDriveViewUrl(uploaded);
             photoFileID = uploaded.fileId;
           }
 
@@ -1182,7 +1182,7 @@ async function showPendingDeliveries(projCode) {
             });
             const pdfBlob = reportPdfToBlob(pdfDoc);
             const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `SR_${noTrx.replace(/\//g, '-')}.pdf`);
-            await supabaseClient.from('siteReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+            await supabaseClient.from('siteReceiving').update({ ReportURL: buildDriveViewUrl(uploadedPdf), ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
 
             // Update Status PO menjadi 'Barang Tiba di Site' dan Request terkait menjadi 'Barang Diterima di Site'
             try {

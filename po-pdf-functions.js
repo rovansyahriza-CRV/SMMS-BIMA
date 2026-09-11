@@ -422,15 +422,20 @@ async function sendPoApprovalEmailDesktop(poId) {
   // tersimpan di Drive + kolom ReportURL. Isolated try/catch: kalau gagal upload, jangan
   // sampai bikin approve PO/pengiriman email jadi ikutan gagal.
   try {
-    const uploadedPoPdf = await uploadBase64ToDrive(
+    const byteChars = atob(pdfBase64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    const pdfBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+
+    const uploadedPoPdf = await uploadToDrive(
       'reports',
       `${poHeader.doctype}-${poHeader.docnumber}.pdf`,
       'application/pdf',
-      pdfBase64
+      pdfBlob
     );
     await supabaseClient
       .from('purchaseOrder')
-      .update({ ReportURL: uploadedPoPdf.directUrl, ReportFileID: uploadedPoPdf.fileId })
+      .update({ ReportURL: buildDriveViewUrl(uploadedPoPdf), ReportFileID: uploadedPoPdf.fileId })
       .eq('POID', poid);
   } catch (reportErr) {
     console.warn('Gagal upload/simpan report PDF PO/SO ke Drive:', reportErr);

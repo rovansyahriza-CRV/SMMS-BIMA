@@ -800,7 +800,7 @@ async function refreshRequestReportPdf(refno, forcedStatus = null) {
     
     await supabaseClient.from('request').update({
       Status: currentStatus,
-      ReportURL: uploadedPdf.directUrl,
+      ReportURL: buildDriveViewUrl(uploadedPdf),
       ReportFileID: uploadedPdf.fileId
     }).eq('RefNo', refno);
 
