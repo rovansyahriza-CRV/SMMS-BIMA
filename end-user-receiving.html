@@ -614,15 +614,18 @@ async function resolveAccessAndProceed() {
   }
 }
 
-// Parsing kolom "Author" -- cuma pola "Penerima barang <kode>" yang relevan di halaman ini
-// (tag lain kayak "Approval Request 101" atau "Pengirim barang 101" diabaikan).
+// Parsing kolom "Author" -- terima 2 pola: "Penerima barang <kode>" (lama, storeman
+// yang juga terima kiriman vendor) dan "Serah Terima Barang <kode>" (baru, khusus
+// storeman yang HP-nya dipakai buat proses serah terima ke end user).
 function parsePicAccess(authorStr) {
   if (!authorStr) return [];
   const parts = String(authorStr).split(',').map(s => s.trim()).filter(Boolean);
   const result = [];
   parts.forEach(p => {
-    const m = p.match(/^penerima\s+barang\s+(\d+)$/i);
-    if (m) result.push({ role: 'penerima', project: Number(m[1]) });
+    const m1 = p.match(/^penerima\s+barang\s+(\d+)$/i);
+    if (m1) result.push({ role: 'penerima', project: Number(m1[1]) });
+    const m2 = p.match(/^serah\s+terima\s+barang\s+(\d+)$/i);
+    if (m2) result.push({ role: 'penerima', project: Number(m2[1]) });
   });
   return result;
 }
@@ -936,7 +939,7 @@ async function submitHandover() {
       photoDataUrl = dataUrl;
       setStatus("Mengupload foto...", "info");
       const uploaded = await uploadToDrive("photos", `EUR_${noTrx.replace(/\//g, '-')}.jpg`, "image/jpeg", compressedBlob);
-      photoURL = uploaded.directUrl;
+      photoURL = buildDriveViewUrl(uploaded);
       photoFileID = uploaded.fileId;
     }
 
@@ -982,7 +985,7 @@ async function submitHandover() {
       });
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `EUR_${noTrx.replace(/\//g, '-')}.pdf`);
-      await supabaseClient.from('endUserReceiving').update({ ReportURL: uploadedPdf.directUrl, ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+      await supabaseClient.from('endUserReceiving').update({ ReportURL: buildDriveViewUrl(uploadedPdf), ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
 
       // Update Status Request terkait menjadi 'Selesai (Diterima End User)'
       try {
