@@ -878,7 +878,14 @@ async function handleBatchSubmitRequest(e) {
         const fileName = `REQ_REF_${Date.now()}_${file.name}`;
         const uploaded = await uploadToDrive('reports', fileName, file.type || 'image/jpeg', file);
         const clickableUrl = buildDriveViewUrl(uploaded);
-        photoUrls.push({ url: clickableUrl, fileId: uploaded.fileId, fileName: file.name });
+        let dataUrl = null;
+        try {
+          const compressed = await compressImage(file, 500, 0.7);
+          dataUrl = await blobToDataUrl(compressed);
+        } catch (compressErr) {
+          console.warn('Gagal bikin thumbnail foto referensi (link tetap disimpan):', compressErr);
+        }
+        photoUrls.push({ url: clickableUrl, fileId: uploaded.fileId, fileName: file.name, dataUrl });
       } catch (fotoErr) {
         console.error('Gagal upload foto referensi:', fotoErr);
         alert('Sebagian/semua foto referensi gagal diunggah, tapi request tetap akan dikirim tanpa foto tersebut.\n' + fotoErr.message);
@@ -956,7 +963,7 @@ async function handleBatchSubmitRequest(e) {
         items: itemsPayload.map(it => ({ kode: itemCode(it) || (it.ItemGroup || ''), desk: it.ItemDescription, qty: it.QTY, unit: it.UNIT })),
         approvalHistory: [{ tanggal: new Date().toLocaleString('id-ID'), oleh: headerData.requestBy, keterangan: 'Request diajukan' }],
         disetujuiOleh: null,
-        photoLinks: photoUrls.length > 0 ? photoUrls.map((p, i) => ({ label: p.fileName || `Foto ${i + 1}`, url: p.url })) : null,
+        photoLinks: photoUrls.length > 0 ? photoUrls.map((p, i) => ({ label: p.fileName || `Foto ${i + 1}`, url: p.url, dataUrl: p.dataUrl || null })) : null,
       });
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${generatedRefNo.replace(/\//g, '-')}.pdf`);
