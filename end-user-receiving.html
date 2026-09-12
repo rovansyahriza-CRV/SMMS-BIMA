@@ -581,7 +581,15 @@ async function resolveAccessAndProceed() {
     const { data: authorStr, error } = await supabaseClient.rpc('get_author_by_karyawan_id', { p_id: verifiedId });
     if (error) throw error;
 
-    accessList = parsePicAccess(authorStr);
+    const rawAccessList = parsePicAccess(authorStr);
+    // Dedupe by project -- beberapa tag Author ("Penerima barang X" & "Serah Terima Barang X")
+    // bisa nunjuk ke project yang sama, jangan sampai muncul tombol dobel.
+    const seenProjects = new Set();
+    accessList = rawAccessList.filter(acc => {
+      if (seenProjects.has(acc.project)) return false;
+      seenProjects.add(acc.project);
+      return true;
+    });
     statusEl.style.display = "none";
 
     if (accessList.length === 0) {
