@@ -265,8 +265,13 @@ async function buildReportPdf(config) {
     y = drawSectionTitle(doc, "Foto Referensi", marginX, y, pageW, marginX);
     doc.setFontSize(8.5);
     config.photoLinks.forEach((p, i) => {
-      doc.setTextColor(...hexToRgb(C.ACCENT || C.INK));
-      doc.textWithLink(`📎 ${p.label || 'Foto ' + (i + 1)}`, marginX, y, { url: p.url });
+      const label = `[${i + 1}] ${p.label || 'Foto ' + (i + 1)}`;
+      doc.setTextColor(37, 99, 235); // biru, standar warna link
+      doc.textWithLink(label, marginX, y, { url: p.url });
+      const textW = doc.getTextWidth(label);
+      doc.setDrawColor(37, 99, 235);
+      doc.setLineWidth(0.2);
+      doc.line(marginX, y + 0.8, marginX + textW, y + 0.8); // garis bawah manual (jsPDF gak underline otomatis)
       y += 5;
     });
     doc.setTextColor(...hexToRgb(C.INK));
