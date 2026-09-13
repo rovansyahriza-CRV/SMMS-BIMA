@@ -661,8 +661,10 @@ async function initGPS() {
     try {
       pos = await getGeo({ enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 });
     } catch (e2) {
-      showBanner(locBanner, "🔴 Gagal ambil GPS. Aktifkan GPS/WiFi di HP.", "fail");
-      showRetry();
+      showBanner(locBanner, "🟡 GPS tidak bisa diambil. Lokasi tidak tercatat, tapi daftar material tetap ditampilkan.", "info");
+      matchedLat = null; matchedLng = null; matchedLocation = null;
+      document.getElementById('materialCard').style.display = "block";
+      await loadAvailableMaterial(projectCode);
       return;
     }
   }
@@ -679,8 +681,10 @@ async function initGPS() {
     const dist = loc ? (loc.Distance !== undefined ? loc.Distance : loc.distance) : 0;
 
     if (!loc || !isInside) {
-      showBanner(locBanner, "🔴 Di luar area site terdaftar" + (namaLokasi ? " (" + namaLokasi + ")" : "") + ".", "fail");
-      showRetry();
+      matchedLocation = null;
+      showBanner(locBanner, "🟡 Lokasi GPS tercatat, tapi di luar area site terdaftar" + (namaLokasi ? " (terdekat: " + namaLokasi + ", " + Math.round(dist) + "m)" : "") + ". Daftar material tetap ditampilkan.", "info");
+      document.getElementById('materialCard').style.display = "block";
+      await loadAvailableMaterial(projectCode);
       return;
     }
     matchedLocation = { namalokasi: namaLokasi, ...loc };
@@ -688,8 +692,10 @@ async function initGPS() {
     document.getElementById('materialCard').style.display = "block";
     await loadAvailableMaterial(projectCode);
   } catch (e) {
-    showBanner(locBanner, "🔴 Gagal cek lokasi: " + e.message, "fail");
-    showRetry();
+    matchedLocation = null;
+    showBanner(locBanner, "🟡 GPS tercatat, tapi gagal cek kecocokan lokasi (" + e.message + "). Daftar material tetap ditampilkan.", "info");
+    document.getElementById('materialCard').style.display = "block";
+    await loadAvailableMaterial(projectCode);
   }
 }
 
@@ -713,7 +719,6 @@ async function getProjectPOIds(projCode) {
 
 // ============ 6. Stok material tersedia di site ini (siteReceiving dikurangi endUserReceiving) ============
 async function loadAvailableMaterial(projCode) {
-  document.getElementById('materialSiteLabel').textContent = matchedLocation ? matchedLocation.namalokasi : '-';
   const resultsEl = document.getElementById('materialResults');
   resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat daftar material...</p>';
   materialList = [];
@@ -721,9 +726,11 @@ async function loadAvailableMaterial(projCode) {
     const projectPoIds = await getProjectPOIds(projCode);
     if (projectPoIds.length === 0) { resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada PO/SO untuk project ini.</p>'; return; }
 
+    document.getElementById('materialSiteLabel').textContent = matchedLocation ? matchedLocation.namalokasi : "Semua site (GPS tidak mengunci akses)";
+    // Catatan: GPS tidak lagi dipakai buat mengunci/filter -- sama seperti delivery-to-site.html.
+    // Semua material project ini ditampilkan apapun DestinationSite pengirimannya.
     const { data: deliveries, error: delErr } = await supabaseClient
-      .from('delivery').select('DeliveryID, PODetailID')
-      .eq('DestinationSite', matchedLocation ? matchedLocation.namalokasi : '__none__')
+      .from('delivery').select('DeliveryID, PODetailID, DestinationSite')
       .in('POID', projectPoIds);
     if (delErr) throw delErr;
     const deliveryIds = (deliveries || []).map(d => d.DeliveryID);
