@@ -588,14 +588,14 @@ function deliverySubLabel(list) {
 // ============ 3. Laporan Stok -- akumulasi per item: Sedang Proses Order / OnHand di Site / Sudah Handover ============
 function renderStockSummary(scopedData) {
   const el = document.getElementById('stockSummaryRow');
-  const totalProcess = scopedData.reduce((s, sm) => s + sm.totalInProcess, 0);
-  const totalOnHand = scopedData.reduce((s, sm) => s + sm.totalOnHand, 0);
-  const totalHanded = scopedData.reduce((s, sm) => s + sm.totalHandedOver, 0);
+  const jenisProcess = scopedData.filter(sm => sm.totalInProcess > 0).length;
+  const jenisOnHand = scopedData.filter(sm => sm.totalOnHand > 0).length;
+  const jenisHanded = scopedData.filter(sm => sm.totalHandedOver > 0).length;
   el.innerHTML = `
     <div class="summary-tile"><div class="num">${scopedData.length}</div><div class="lbl">Jenis Item</div></div>
-    <div class="summary-tile"><div class="num">${totalProcess}</div><div class="lbl">Sedang Proses Order</div></div>
-    <div class="summary-tile"><div class="num">${totalOnHand}</div><div class="lbl">OnHand di Site</div></div>
-    <div class="summary-tile"><div class="num">${totalHanded}</div><div class="lbl">Sudah Handover</div></div>
+    <div class="summary-tile"><div class="num">${jenisProcess}</div><div class="lbl">Jenis Proses Order</div></div>
+    <div class="summary-tile"><div class="num">${jenisOnHand}</div><div class="lbl">Jenis OnHand di Site</div></div>
+    <div class="summary-tile"><div class="num">${jenisHanded}</div><div class="lbl">Jenis Sudah Handover</div></div>
   `;
 }
 
