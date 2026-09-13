@@ -7,48 +7,51 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
-    --bg:#ECEEF1; --surface:#FFFFFF; --surface-2:#F5F6F8;
-    --text:#12161C; --text-muted:#5B6472; --border:#DEE2E7;
+    --bg:#EEF0F3; --surface:#FFFFFF; --surface-2:#F5F6F8;
+    --text:#12161C; --text-muted:#5B6472; --border:#E1E4E9;
     --accent:#D9312E; --accent-dark:#B32220;
-    --steel:#243463; --steel-light:#3C5089;
-    --success:#178A4C; --success-bg:#E5F6EC;
+    --steel:#1E2A4A; --steel-light:#3C5089;
+    --success:#0F7A45; --success-bg:#E5F6EC;
     --danger:#D9312E; --danger-bg:#FCEAE8;
-    --warn:#B8860B; --warn-bg:#FBF3DC;
-    --radius-lg:18px; --radius-md:12px;
+    --warn:#A66A00; --warn-bg:#FBF3DC;
+    --radius-lg:16px; --radius-md:10px;
+    --shadow-card: 0 1px 2px rgba(18,22,28,0.04), 0 1px 8px rgba(18,22,28,0.05);
+    --shadow-card-hover: 0 2px 4px rgba(18,22,28,0.05), 0 4px 16px rgba(18,22,28,0.07);
   }
   * { box-sizing:border-box; }
-  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:24px 16px 56px; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:28px 16px 56px; -webkit-tap-highlight-color:transparent; -webkit-font-smoothing:antialiased; }
   .page { max-width:720px; margin:0 auto; }
-  .brand-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:20px; flex-wrap:wrap; gap:10px; }
-  .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel-light); font-weight:700; }
-  h1.title { font-size:26px; font-weight:700; margin:4px 0 0; color:var(--steel); }
-  #lastRefreshed { font-size:11px; color:var(--text-muted); }
-  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; margin-bottom:14px; }
-  .card-label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); margin:0 0 10px; font-weight:700; }
+  .brand-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:22px; padding-bottom:16px; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:10px; }
+  .eyebrow { font-size:11px; letter-spacing:.1em; color:var(--steel-light); font-weight:700; }
+  h1.title { font-size:24px; font-weight:700; margin:3px 0 0; color:var(--steel); letter-spacing:-0.01em; }
+  #lastRefreshed { font-size:11.5px; color:var(--text-muted); margin-top:4px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; margin-bottom:14px; box-shadow:var(--shadow-card); }
+  .card-label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); margin:0 0 10px; font-weight:700; }
   button { font-family:inherit; font-weight:600; font-size:15px; border:none; border-radius:var(--radius-md); cursor:pointer; }
   button:active { transform:scale(0.98); }
   .btn-secondary { background:var(--surface-2); color:var(--steel); border:1.5px solid var(--border); padding:10px 16px; }
+  .btn-secondary:hover { border-color:var(--steel-light); }
   .filter-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
   select,input[type=text] { font-size:15px; padding:11px 12px; border-radius:var(--radius-md); border:1.5px solid var(--border); background:var(--surface-2); color:var(--text); font-family:inherit; }
   select#projectFilter { min-width:180px; }
   input#monitoringSearch { flex:1; min-width:180px; }
-  .chip { display:inline-block; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:600; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-muted); cursor:pointer; margin:0 6px 6px 0; }
+  .chip { display:inline-block; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:600; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-muted); cursor:pointer; margin:0 6px 6px 0; transition:background .15s, color .15s, border-color .15s; }
   .chip.active { background:var(--steel); border-color:var(--steel); color:#fff; }
   #resultBanner { font-size:13px; padding:12px 14px; border-radius:var(--radius-md); margin-bottom:14px; line-height:1.5; display:none; }
   .banner-fail { background:var(--danger-bg); color:var(--danger); border-left:3px solid var(--danger); }
   .summary-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
-  .summary-tile { flex:1; min-width:110px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; }
-  .summary-tile .num { font-size:22px; font-weight:700; color:var(--steel); }
-  .summary-tile .lbl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
-  .req-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); }
-  .req-card:hover { border-color:var(--steel-light); }
+  .summary-tile { flex:1; min-width:110px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--steel-light); border-radius:var(--radius-md); padding:12px 14px; box-shadow:var(--shadow-card); }
+  .summary-tile .num { font-size:22px; font-weight:700; color:var(--steel); letter-spacing:-0.02em; }
+  .summary-tile .lbl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+  .req-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); transition:box-shadow .15s, border-color .15s; }
+  .req-card:hover { border-color:var(--steel-light); box-shadow:var(--shadow-card-hover); }
   .req-card.selected { border-color:var(--steel-light); }
   .req-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; cursor:pointer; }
-  .req-head h4 { margin:0 0 4px; font-size:14px; color:var(--steel); }
+  .req-head h4 { margin:0 0 4px; font-size:14px; color:var(--steel); font-weight:700; }
   .req-head p { margin:0; font-size:12px; color:var(--text-muted); }
   .report-link { font-size:12px; font-weight:600; color:var(--steel-light); text-decoration:none; }
   .report-link:hover { color:var(--steel); text-decoration:underline; }
-  .stage-badge { flex-shrink:0; font-size:10px; font-weight:700; padding:5px 10px; border-radius:999px; white-space:nowrap; }
+  .stage-badge { flex-shrink:0; font-size:11px; font-weight:700; padding:5px 11px; border-radius:999px; white-space:nowrap; letter-spacing:.01em; }
   .stage-badge.ok { background:var(--success-bg); color:var(--success); }
   .stage-badge.info { background:#E7ECFB; color:var(--steel); }
   .stage-badge.warn { background:var(--warn-bg); color:var(--warn); }
@@ -57,17 +60,17 @@
   .stage-row .dot { flex-shrink:0; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; margin-top:1px; }
   .stage-row .dot.done { background:var(--success-bg); color:var(--success); }
   .stage-row .dot.pending { background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); }
-  .stage-row .stage-body b { color:var(--text); }
+  .stage-row .stage-body b { color:var(--text); font-weight:600; }
   .stage-row .stage-body .sub { color:var(--text-muted); font-size:11.5px; }
   footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px; line-height:1.5; }
   .tab-chip { font-size:13px; padding:8px 16px; }
-  .stock-group-header { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--steel-light); margin:16px 0 8px; }
-  .stock-item-card { border:1.5px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); }
-  .stock-item-card h4 { margin:0 0 8px; font-size:14px; color:var(--steel); }
+  .stock-group-header { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--steel-light); margin:18px 0 8px; }
+  .stock-item-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); }
+  .stock-item-card h4 { margin:0 0 8px; font-size:14px; color:var(--steel); font-weight:700; }
   .stock-metrics { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
-  .stock-metric { flex:1; min-width:100px; border-radius:10px; padding:8px 10px; text-align:center; }
-  .stock-metric .n { font-size:17px; font-weight:700; }
-  .stock-metric .l { font-size:10px; text-transform:uppercase; letter-spacing:.03em; }
+  .stock-metric { flex:1; min-width:100px; border-radius:10px; padding:9px 10px; text-align:center; }
+  .stock-metric .n { font-size:17px; font-weight:700; letter-spacing:-0.01em; }
+  .stock-metric .l { font-size:10px; text-transform:uppercase; letter-spacing:.04em; margin-top:1px; }
   .stock-metric.process { background:var(--warn-bg); } .stock-metric.process .n,.stock-metric.process .l { color:var(--warn); }
   .stock-metric.onhand { background:#E7ECFB; } .stock-metric.onhand .n,.stock-metric.onhand .l { color:var(--steel); }
   .stock-metric.handed { background:var(--success-bg); } .stock-metric.handed .n,.stock-metric.handed .l { color:var(--success); }
@@ -414,14 +417,14 @@ async function loadMonitoring() {
 }
 
 function computeStage(item) {
-  if (!item.rfq.exists) return { label: 'Belum RFQ', cls: 'warn' };
-  if (!item.po.exists) return { label: 'RFQ Dibuat, Menunggu PO', cls: 'warn' };
-  if (item.vendorReceiving.qty <= 0) return { label: 'PO Terbit, Menunggu Kirim dari Vendor', cls: 'info' };
-  if (item.delivery.qty <= 0) return { label: 'Diterima dari Vendor, Menunggu Dikirim ke Site', cls: 'info' };
-  if (item.siteReceiving.qty <= 0) return { label: 'Dalam Perjalanan ke Site', cls: 'info' };
-  if (item.endUserReceiving.qty <= 0) return { label: 'Diterima di Site, Menunggu ke End User', cls: 'warn' };
-  if (item.endUserReceiving.qty < item.siteReceiving.qty) return { label: 'Sebagian Sudah ke End User', cls: 'info' };
-  return { label: 'Selesai (Sudah ke End User)', cls: 'ok' };
+  if (!item.rfq.exists) return { label: 'Belum RFQ', cls: 'warn', icon: '○' };
+  if (!item.po.exists) return { label: 'RFQ Dibuat, Menunggu PO', cls: 'warn', icon: '○' };
+  if (item.vendorReceiving.qty <= 0) return { label: 'PO Terbit, Menunggu Kirim dari Vendor', cls: 'info', icon: '◐' };
+  if (item.delivery.qty <= 0) return { label: 'Diterima dari Vendor, Menunggu Dikirim ke Site', cls: 'info', icon: '◐' };
+  if (item.siteReceiving.qty <= 0) return { label: 'Dalam Perjalanan ke Site', cls: 'info', icon: '🚚' };
+  if (item.endUserReceiving.qty <= 0) return { label: 'Diterima di Site, Menunggu ke End User', cls: 'ok', icon: '✓' };
+  if (item.endUserReceiving.qty < item.siteReceiving.qty) return { label: 'Sebagian Sudah ke End User', cls: 'info', icon: '◐' };
+  return { label: 'Selesai (Sudah ke End User)', cls: 'ok', icon: '✓' };
 }
 
 function updateRefreshedLabel() {
@@ -500,7 +503,7 @@ function renderMonitoring() {
           <p>Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
           ${it.ReportURL ? `<p><a href="${it.ReportURL}" target="_blank" rel="noopener" class="report-link" onclick="event.stopPropagation()">📄 Lihat Report Request</a></p>` : ''}
         </div>
-        <span class="stage-badge ${it.stage.cls}">${it.stage.label}</span>
+        <span class="stage-badge ${it.stage.cls}">${it.stage.icon || ''} ${it.stage.label}</span>
       </div>
       <div class="stage-detail">
         ${stageRowHtml('1. Request', true, `${it.QtyRequested} ${it.Unit || ''} diminta`, '')}
