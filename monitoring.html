@@ -7,84 +7,97 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
-    --bg:#EEF0F3; --surface:#FFFFFF; --surface-2:#F5F6F8;
-    --text:#12161C; --text-muted:#5B6472; --border:#E1E4E9;
-    --accent:#D9312E; --accent-dark:#B32220;
-    --steel:#1E2A4A; --steel-light:#3C5089;
+    --bg:#EEF1F5; --surface:#FFFFFF; --surface-2:#F6F7F9;
+    --text:#12161C; --text-muted:#5B6472; --border:#E3E6EB;
+    --accent:#B8860B; --accent-dark:#8C6608;
+    --steel:#16213E; --steel-light:#3C5089;
     --success:#0F7A45; --success-bg:#E5F6EC;
     --danger:#D9312E; --danger-bg:#FCEAE8;
     --warn:#A66A00; --warn-bg:#FBF3DC;
     --radius-lg:16px; --radius-md:10px;
-    --shadow-card: 0 1px 2px rgba(18,22,28,0.04), 0 1px 8px rgba(18,22,28,0.05);
-    --shadow-card-hover: 0 2px 4px rgba(18,22,28,0.05), 0 4px 16px rgba(18,22,28,0.07);
+    --shadow-card: 0 1px 2px rgba(18,22,28,0.04), 0 1px 10px rgba(18,22,28,0.05);
+    --shadow-card-hover: 0 2px 4px rgba(18,22,28,0.05), 0 6px 20px rgba(18,22,28,0.08);
   }
   * { box-sizing:border-box; }
-  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:28px 16px 56px; -webkit-tap-highlight-color:transparent; -webkit-font-smoothing:antialiased; }
-  .page { max-width:720px; margin:0 auto; }
-  .brand-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:22px; padding-bottom:16px; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:10px; }
-  .eyebrow { font-size:11px; letter-spacing:.1em; color:var(--steel-light); font-weight:700; }
-  h1.title { font-size:24px; font-weight:700; margin:3px 0 0; color:var(--steel); letter-spacing:-0.01em; }
-  #lastRefreshed { font-size:11.5px; color:var(--text-muted); margin-top:4px; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:32px 16px 56px; -webkit-tap-highlight-color:transparent; -webkit-font-smoothing:antialiased; }
+  .page { max-width:740px; margin:0 auto; }
+  .brand-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px; padding-bottom:18px; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:10px; }
+  .brand-mark { display:flex; align-items:center; gap:10px; }
+  .brand-mark .crest { width:34px; height:34px; border-radius:9px; background:linear-gradient(160deg, var(--steel) 0%, #263460 100%); display:flex; align-items:center; justify-content:center; color:#D9BE7C; font-weight:800; font-size:14px; letter-spacing:-0.02em; flex-shrink:0; }
+  .eyebrow { font-size:11px; letter-spacing:.09em; color:var(--steel-light); font-weight:700; }
+  h1.title { font-size:23px; font-weight:700; margin:2px 0 0; color:var(--steel); letter-spacing:-0.015em; }
+  #lastRefreshed { font-size:11.5px; color:var(--text-muted); margin-top:5px; }
   .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; margin-bottom:14px; box-shadow:var(--shadow-card); }
   .card-label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); margin:0 0 10px; font-weight:700; }
   button { font-family:inherit; font-weight:600; font-size:15px; border:none; border-radius:var(--radius-md); cursor:pointer; }
   button:active { transform:scale(0.98); }
-  .btn-secondary { background:var(--surface-2); color:var(--steel); border:1.5px solid var(--border); padding:10px 16px; }
-  .btn-secondary:hover { border-color:var(--steel-light); }
-  .filter-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-  select,input[type=text] { font-size:15px; padding:11px 12px; border-radius:var(--radius-md); border:1.5px solid var(--border); background:var(--surface-2); color:var(--text); font-family:inherit; }
-  select#projectFilter { min-width:180px; }
+  .btn-secondary { background:var(--surface-2); color:var(--steel); border:1.5px solid var(--border); padding:10px 16px; transition:border-color .15s, background .15s; }
+  .btn-secondary:hover { border-color:var(--steel-light); background:#EFF1F5; }
+  .filter-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .filter-select-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .filter-select-row select { flex:1; min-width:150px; }
+  select,input[type=text] { font-size:14.5px; padding:11px 12px; border-radius:var(--radius-md); border:1.5px solid var(--border); background:var(--surface-2); color:var(--text); font-family:inherit; transition:border-color .15s; }
+  select:focus,input[type=text]:focus { outline:none; border-color:var(--steel-light); }
   input#monitoringSearch { flex:1; min-width:180px; }
-  .chip { display:inline-block; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:600; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-muted); cursor:pointer; margin:0 6px 6px 0; transition:background .15s, color .15s, border-color .15s; }
+  .chip { display:inline-block; padding:6px 13px; border-radius:999px; font-size:12px; font-weight:600; border:1.5px solid var(--border); background:var(--surface-2); color:var(--text-muted); cursor:pointer; margin:0 6px 6px 0; transition:background .15s, color .15s, border-color .15s; }
   .chip.active { background:var(--steel); border-color:var(--steel); color:#fff; }
   #resultBanner { font-size:13px; padding:12px 14px; border-radius:var(--radius-md); margin-bottom:14px; line-height:1.5; display:none; }
   .banner-fail { background:var(--danger-bg); color:var(--danger); border-left:3px solid var(--danger); }
   .summary-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
-  .summary-tile { flex:1; min-width:110px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--steel-light); border-radius:var(--radius-md); padding:12px 14px; box-shadow:var(--shadow-card); }
-  .summary-tile .num { font-size:22px; font-weight:700; color:var(--steel); letter-spacing:-0.02em; }
-  .summary-tile .lbl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
-  .req-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); transition:box-shadow .15s, border-color .15s; }
+  .summary-tile { flex:1; min-width:110px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:13px 15px; box-shadow:var(--shadow-card); position:relative; overflow:hidden; }
+  .summary-tile::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--steel-light); }
+  .summary-tile .num { font-size:23px; font-weight:700; color:var(--steel); letter-spacing:-0.02em; line-height:1.1; }
+  .summary-tile .lbl { font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-top:3px; font-weight:600; }
+  .req-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:15px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); transition:box-shadow .15s, border-color .15s; }
   .req-card:hover { border-color:var(--steel-light); box-shadow:var(--shadow-card-hover); }
   .req-card.selected { border-color:var(--steel-light); }
-  .req-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; cursor:pointer; }
-  .req-head h4 { margin:0 0 4px; font-size:14px; color:var(--steel); font-weight:700; }
-  .req-head p { margin:0; font-size:12px; color:var(--text-muted); }
+  .req-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; cursor:pointer; }
+  .req-head h4 { margin:0 0 5px; font-size:14.5px; color:var(--steel); font-weight:700; letter-spacing:-0.005em; }
+  .req-head p { margin:0; font-size:12px; color:var(--text-muted); line-height:1.5; }
+  .rental-tag { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.03em; color:var(--accent-dark); background:#FBF0DC; border:1px solid #EAD9AF; padding:1px 7px; border-radius:5px; margin-left:6px; vertical-align:1px; }
   .report-link { font-size:12px; font-weight:600; color:var(--steel-light); text-decoration:none; }
   .report-link:hover { color:var(--steel); text-decoration:underline; }
-  .stage-badge { flex-shrink:0; font-size:11px; font-weight:700; padding:5px 11px; border-radius:999px; white-space:nowrap; letter-spacing:.01em; }
+  .stage-badge { flex-shrink:0; font-size:11px; font-weight:700; padding:5px 12px; border-radius:999px; white-space:nowrap; letter-spacing:.01em; }
   .stage-badge.ok { background:var(--success-bg); color:var(--success); }
   .stage-badge.info { background:#E7ECFB; color:var(--steel); }
   .stage-badge.warn { background:var(--warn-bg); color:var(--warn); }
-  .stage-detail { display:none; margin-top:12px; border-top:1px dashed var(--border); padding-top:10px; }
-  .stage-row { display:flex; align-items:flex-start; gap:8px; padding:6px 0; font-size:12.5px; }
-  .stage-row .dot { flex-shrink:0; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; margin-top:1px; }
-  .stage-row .dot.done { background:var(--success-bg); color:var(--success); }
-  .stage-row .dot.pending { background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); }
+  .stage-detail { display:none; margin-top:14px; border-top:1px solid var(--border); padding-top:14px; }
+  .stage-row { display:flex; align-items:flex-start; gap:10px; padding:0 0 16px; font-size:12.5px; position:relative; }
+  .stage-row:last-child { padding-bottom:0; }
+  .stage-row::before { content:''; position:absolute; left:8.5px; top:19px; bottom:-3px; width:1.5px; background:var(--border); }
+  .stage-row:last-child::before { display:none; }
+  .stage-row .dot { flex-shrink:0; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10.5px; margin-top:0; z-index:1; background:var(--surface); }
+  .stage-row .dot.done { background:var(--success); color:#fff; }
+  .stage-row .dot.pending { background:var(--surface-2); color:var(--text-muted); border:1.5px solid var(--border); }
+  .stage-row .stage-body { padding-top:1px; }
   .stage-row .stage-body b { color:var(--text); font-weight:600; }
-  .stage-row .stage-body .sub { color:var(--text-muted); font-size:11.5px; }
-  footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px; line-height:1.5; }
+  .stage-row .stage-body .sub { color:var(--text-muted); font-size:11.5px; margin-top:2px; line-height:1.5; }
+  footer.hint { text-align:center; font-size:12px; color:var(--text-muted); margin-top:22px; line-height:1.6; }
   .tab-chip { font-size:13px; padding:8px 16px; }
-  .stock-group-header { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--steel-light); margin:18px 0 8px; }
-  .stock-item-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); }
-  .stock-item-card h4 { margin:0 0 8px; font-size:14px; color:var(--steel); font-weight:700; }
-  .stock-metrics { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+  .stock-group-header { font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--steel-light); margin:20px 0 9px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .stock-item-card { border:1px solid var(--border); border-radius:var(--radius-md); padding:15px; margin-bottom:12px; background:var(--surface); box-shadow:var(--shadow-card); }
+  .stock-item-card h4 { margin:0 0 10px; font-size:14.5px; color:var(--steel); font-weight:700; letter-spacing:-0.005em; }
+  .stock-metrics { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
   .stock-metric { flex:1; min-width:100px; border-radius:10px; padding:9px 10px; text-align:center; }
   .stock-metric .n { font-size:17px; font-weight:700; letter-spacing:-0.01em; }
-  .stock-metric .l { font-size:10px; text-transform:uppercase; letter-spacing:.04em; margin-top:1px; }
+  .stock-metric .l { font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; margin-top:2px; font-weight:600; }
   .stock-metric.process { background:var(--warn-bg); } .stock-metric.process .n,.stock-metric.process .l { color:var(--warn); }
   .stock-metric.onhand { background:#E7ECFB; } .stock-metric.onhand .n,.stock-metric.onhand .l { color:var(--steel); }
   .stock-metric.handed { background:var(--success-bg); } .stock-metric.handed .n,.stock-metric.handed .l { color:var(--success); }
-  .stock-site-list { font-size:12px; color:var(--text-muted); }
-  .stock-site-list span { display:inline-block; margin-right:12px; }
+  .stock-site-list { font-size:12px; color:var(--text-muted); padding-top:2px; border-top:1px dashed var(--border); padding-top:8px; }
+  .stock-site-list span { display:inline-block; margin-right:14px; }
 </style>
 </head>
 <body>
 <div class="page">
 
   <div class="brand-row">
-    <div>
-      <div class="eyebrow">SMMS-BIMA</div>
-      <h1 class="title">Monitoring Barang</h1>
+    <div class="brand-mark">
+      <div class="crest">SB</div>
+      <div>
+        <div class="eyebrow">SMMS · BIMA</div>
+        <h1 class="title">Monitoring Barang</h1>
+      </div>
     </div>
     <div style="text-align:right;">
       <button id="btnRefresh" class="btn-secondary">🔄 Refresh</button>
@@ -95,7 +108,17 @@
   <div id="resultBanner"></div>
 
   <div class="card" style="padding-bottom:10px;">
-    <select id="projectFilter" style="margin-bottom:10px;"><option value="__all__">Semua Project</option></select>
+    <div class="filter-select-row">
+      <select id="projectFilter"><option value="__all__">Semua Project</option></select>
+      <select id="categoryFilter">
+        <option value="__all__">Semua Kategori</option>
+        <option value="Material">Material</option>
+        <option value="Consumables">Consumables</option>
+        <option value="Tools">Tools</option>
+        <option value="HeavyEquipment">Heavy Equipment</option>
+        <option value="ServiceOrder">Service Order</option>
+      </select>
+    </div>
     <div>
       <span class="chip tab-chip active" data-tab="proses">📋 Status Proses</span>
       <span class="chip tab-chip" data-tab="stok">📦 Laporan Stok</span>
@@ -137,6 +160,7 @@ const SUPABASE_KEY = "sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let scopeFilter = null;   // null = semua project, number = 1 project (dari dropdown)
+let categoryFilter = null; // null = semua kategori, atau salah satu ItemGroup
 let pipelineData = [];    // hasil akhir per baris request, siap dirender
 let stockReportData = []; // hasil akumulasi per item (Laporan Stok), diisi bareng pipelineData
 let activeFilter = "all";
@@ -188,6 +212,12 @@ document.getElementById('projectFilter').addEventListener('change', (e) => {
   scopeFilter = e.target.value === '__all__' ? null : Number(e.target.value);
   loadMonitoring();
 });
+document.getElementById('categoryFilter').addEventListener('change', (e) => {
+  categoryFilter = e.target.value === '__all__' ? null : e.target.value;
+  renderSummary();
+  renderMonitoring();
+  renderStockReport();
+});
 document.getElementById('btnRefresh').addEventListener('click', () => loadMonitoring());
 
 // ============ 1. Ambil & rakit seluruh pipeline: Request -> RFQ -> PO -> Terima Vendor -> Kirim Site -> Terima Site -> End User ============
@@ -197,7 +227,7 @@ async function loadMonitoring() {
   resultBanner.style.display = "none";
   try {
     let reqQuery = supabaseClient.from('request')
-      .select('ID, WO_NO, RefNo, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID, ReportURL')
+      .select('ID, WO_NO, RefNo, DATE_REQUEST, ItemDescription, ItemGroup, ItemID, QTY, UNIT, Status, PROJECTID, ReportURL, Duration')
       .order('DATE_REQUEST', { ascending: false });
     if (scopeFilter !== null && scopeFilter !== undefined) reqQuery = reqQuery.eq('PROJECTID', scopeFilter);
     const { data: reqRows, error: reqErr } = await reqQuery;
@@ -361,22 +391,30 @@ async function loadMonitoring() {
       const qtyEndUser = deliveries.reduce((s, d) => s + (euByDelivery[d.DeliveryID] || 0), 0);
 
       // -- akumulasi ke Laporan Stok: sedang proses order / OnHand di site (per site) / sudah handover --
+      // Dikecualikan: item sewa (Duration terisi -- balik ke vendor, gak pernah jadi aset perusahaan)
+      // dan ServiceOrder (jasa, bukan barang fisik yang bisa "distok").
+      const isRental = req.Duration !== null && req.Duration !== undefined && req.Duration !== '';
+      const isService = String(req.ItemGroup || '').toLowerCase().replace(/\s+/g, '') === 'serviceorder';
+      const excludedFromStock = isRental || isService;
+
       const stockKey = req.ItemID != null ? `${req.ItemGroup || ''}::${req.ItemID}` : `desc::${(req.ItemDescription || '').trim().toLowerCase()}`;
-      if (!stockMap[stockKey]) {
-        stockMap[stockKey] = { ItemGroup: req.ItemGroup, ItemID: req.ItemID, ItemDescription: req.ItemDescription, Unit: req.UNIT, totalRequested: 0, totalVendorReceived: 0, totalOnHand: 0, totalHandedOver: 0, siteOnHand: {} };
-      }
-      const sm = stockMap[stockKey];
-      sm.totalRequested += qtyRequestedNum;
-      sm.totalVendorReceived += qtyVendorReceived;
-      sm.totalHandedOver += qtyEndUser;
-      deliveries.forEach(d => {
-        const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDelivery[d.DeliveryID] || 0);
-        if (onHandHere > 0) {
-          sm.totalOnHand += onHandHere;
-          const site = d.DestinationSite || '-';
-          sm.siteOnHand[site] = (sm.siteOnHand[site] || 0) + onHandHere;
+      if (!excludedFromStock) {
+        if (!stockMap[stockKey]) {
+          stockMap[stockKey] = { ItemGroup: req.ItemGroup, ItemID: req.ItemID, ItemDescription: req.ItemDescription, Unit: req.UNIT, totalRequested: 0, totalVendorReceived: 0, totalOnHand: 0, totalHandedOver: 0, siteOnHand: {} };
         }
-      });
+        const sm = stockMap[stockKey];
+        sm.totalRequested += qtyRequestedNum;
+        sm.totalVendorReceived += qtyVendorReceived;
+        sm.totalHandedOver += qtyEndUser;
+        deliveries.forEach(d => {
+          const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDelivery[d.DeliveryID] || 0);
+          if (onHandHere > 0) {
+            sm.totalOnHand += onHandHere;
+            const site = d.DestinationSite || '-';
+            sm.siteOnHand[site] = (sm.siteOnHand[site] || 0) + onHandHere;
+          }
+        });
+      }
 
       const item = {
         RequestID: req.ID,
@@ -395,7 +433,8 @@ async function loadMonitoring() {
         vendorReceiving: { qty: qtyVendorReceived },
         delivery: { qty: qtyDelivered, list: deliveries },
         siteReceiving: { qty: qtySiteReceived },
-        endUserReceiving: { qty: qtyEndUser }
+        endUserReceiving: { qty: qtyEndUser },
+        isRental: isRental
       };
       item.stage = computeStage(item);
       return item;
@@ -434,9 +473,12 @@ function updateRefreshedLabel() {
 
 function renderSummary() {
   const el = document.getElementById('summaryRow');
-  const total = pipelineData.length;
-  const done = pipelineData.filter(it => it.stage.cls === 'ok').length;
-  const warn = pipelineData.filter(it => it.stage.cls === 'warn').length;
+  const scoped = categoryFilter
+    ? pipelineData.filter(it => String(it.ItemGroup || '').toLowerCase() === categoryFilter.toLowerCase())
+    : pipelineData;
+  const total = scoped.length;
+  const done = scoped.filter(it => it.stage.cls === 'ok').length;
+  const warn = scoped.filter(it => it.stage.cls === 'warn').length;
   const progress = total - done - warn;
   el.innerHTML = `
     <div class="summary-tile"><div class="num">${total}</div><div class="lbl">Total Item</div></div>
@@ -484,6 +526,7 @@ function renderMonitoring() {
     if (activeFilter === 'done' && it.stage.cls !== 'ok') return false;
     if (activeFilter === 'progress' && it.stage.cls !== 'info') return false;
     if (activeFilter === 'action' && it.stage.cls !== 'warn') return false;
+    if (categoryFilter && String(it.ItemGroup || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
     return true;
   });
 
@@ -500,7 +543,7 @@ function renderMonitoring() {
     card.innerHTML = `
       <div class="req-head">
         <div>
-          <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}</h4>
+          <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}${it.isRental ? '<span class="rental-tag">SEWA</span>' : ''}</h4>
           <p>No. Request: ${it.RefNo || '-'} · WO: ${it.WO_NO || '-'} · Project ${it.ProjectID != null ? it.ProjectID : '-'}</p>
           <p>Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
           ${it.ReportURL ? `<p><a href="${it.ReportURL}" target="_blank" rel="noopener" class="report-link" onclick="event.stopPropagation()">📄 Lihat Report Request</a></p>` : ''}
@@ -544,13 +587,13 @@ function deliverySubLabel(list) {
 }
 
 // ============ 3. Laporan Stok -- akumulasi per item: Sedang Proses Order / OnHand di Site / Sudah Handover ============
-function renderStockSummary() {
+function renderStockSummary(scopedData) {
   const el = document.getElementById('stockSummaryRow');
-  const totalProcess = stockReportData.reduce((s, sm) => s + sm.totalInProcess, 0);
-  const totalOnHand = stockReportData.reduce((s, sm) => s + sm.totalOnHand, 0);
-  const totalHanded = stockReportData.reduce((s, sm) => s + sm.totalHandedOver, 0);
+  const totalProcess = scopedData.reduce((s, sm) => s + sm.totalInProcess, 0);
+  const totalOnHand = scopedData.reduce((s, sm) => s + sm.totalOnHand, 0);
+  const totalHanded = scopedData.reduce((s, sm) => s + sm.totalHandedOver, 0);
   el.innerHTML = `
-    <div class="summary-tile"><div class="num">${stockReportData.length}</div><div class="lbl">Jenis Item</div></div>
+    <div class="summary-tile"><div class="num">${scopedData.length}</div><div class="lbl">Jenis Item</div></div>
     <div class="summary-tile"><div class="num">${totalProcess}</div><div class="lbl">Sedang Proses Order</div></div>
     <div class="summary-tile"><div class="num">${totalOnHand}</div><div class="lbl">OnHand di Site</div></div>
     <div class="summary-tile"><div class="num">${totalHanded}</div><div class="lbl">Sudah Handover</div></div>
@@ -560,17 +603,21 @@ function renderStockSummary() {
 document.getElementById('stockSearch').addEventListener('input', (e) => { stockSearchQuery = e.target.value; renderStockReport(); });
 
 function renderStockReport() {
-  renderStockSummary();
   const wrap = document.getElementById('stockReportListWrap');
-  if (stockReportData.length === 0) {
+  let scopedData = categoryFilter
+    ? stockReportData.filter(sm => String(sm.ItemGroup || '').toLowerCase() === categoryFilter.toLowerCase())
+    : stockReportData;
+  renderStockSummary(scopedData);
+
+  if (scopedData.length === 0) {
     wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Belum ada data stok untuk cakupan ini.</p>';
     return;
   }
 
   const q = (stockSearchQuery || '').trim().toLowerCase();
   const filtered = q
-    ? stockReportData.filter(sm => (sm.ItemDescription || '').toLowerCase().includes(q) || (sm.code && sm.code.toLowerCase().includes(q)))
-    : stockReportData;
+    ? scopedData.filter(sm => (sm.ItemDescription || '').toLowerCase().includes(q) || (sm.code && sm.code.toLowerCase().includes(q)))
+    : scopedData;
 
   if (filtered.length === 0) {
     wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada item yang cocok.</p>';
