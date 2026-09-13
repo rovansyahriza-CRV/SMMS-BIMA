@@ -391,11 +391,11 @@ async function loadMonitoring() {
       const qtyEndUser = deliveries.reduce((s, d) => s + (euByDelivery[d.DeliveryID] || 0), 0);
 
       // -- akumulasi ke Laporan Stok: sedang proses order / OnHand di site (per site) / sudah handover --
-      // Dikecualikan: item sewa (Duration terisi -- balik ke vendor, gak pernah jadi aset perusahaan)
-      // dan ServiceOrder (jasa, bukan barang fisik yang bisa "distok").
-      const isRental = req.Duration !== null && req.Duration !== undefined && req.Duration !== '';
+      // Dikecualikan: ServiceOrder (jasa, bukan barang fisik yang bisa "distok").
+      // Catatan: field Duration TIDAK dipakai buat nentuin exclude -- ternyata dipakai beda-beda
+      // artinya tergantung siapa yang input (kadang cuma durasi pemakaian, bukan sewa beneran).
       const isService = String(req.ItemGroup || '').toLowerCase().replace(/\s+/g, '') === 'serviceorder';
-      const excludedFromStock = isRental || isService;
+      const excludedFromStock = isService;
 
       const stockKey = req.ItemID != null ? `${req.ItemGroup || ''}::${req.ItemID}` : `desc::${(req.ItemDescription || '').trim().toLowerCase()}`;
       if (!excludedFromStock) {
@@ -433,8 +433,7 @@ async function loadMonitoring() {
         vendorReceiving: { qty: qtyVendorReceived },
         delivery: { qty: qtyDelivered, list: deliveries },
         siteReceiving: { qty: qtySiteReceived },
-        endUserReceiving: { qty: qtyEndUser },
-        isRental: isRental
+        endUserReceiving: { qty: qtyEndUser }
       };
       item.stage = computeStage(item);
       return item;
@@ -543,7 +542,7 @@ function renderMonitoring() {
     card.innerHTML = `
       <div class="req-head">
         <div>
-          <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}${it.isRental ? '<span class="rental-tag">SEWA</span>' : ''}</h4>
+          <h4>${code ? '[' + code + '] ' : ''}${it.ItemDescription || '-'}</h4>
           <p>No. Request: ${it.RefNo || '-'} · WO: ${it.WO_NO || '-'} · Project ${it.ProjectID != null ? it.ProjectID : '-'}</p>
           <p>Diminta: ${it.QtyRequested} ${it.Unit || ''} · ${it.DateRequest ? new Date(it.DateRequest).toLocaleDateString('id-ID') : '-'}</p>
           ${it.ReportURL ? `<p><a href="${it.ReportURL}" target="_blank" rel="noopener" class="report-link" onclick="event.stopPropagation()">📄 Lihat Report Request</a></p>` : ''}
