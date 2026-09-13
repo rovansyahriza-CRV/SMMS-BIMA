@@ -110,6 +110,7 @@
       <div>
         <span class="chip active" data-filter="all">Semua</span>
         <span class="chip" data-filter="progress">Sedang Berjalan</span>
+        <span class="chip" data-filter="action">Perlu Tindakan</span>
         <span class="chip" data-filter="done">Selesai</span>
       </div>
     </div>
@@ -481,7 +482,8 @@ function renderMonitoring() {
       if (!hay.includes(q)) return false;
     }
     if (activeFilter === 'done' && it.stage.cls !== 'ok') return false;
-    if (activeFilter === 'progress' && it.stage.cls === 'ok') return false;
+    if (activeFilter === 'progress' && it.stage.cls !== 'info') return false;
+    if (activeFilter === 'action' && it.stage.cls !== 'warn') return false;
     return true;
   });
 
