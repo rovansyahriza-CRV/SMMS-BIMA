@@ -107,6 +107,13 @@
   <button id="btnScanFace" class="btn-block btn-accent" style="display:none;">📸 Scan Wajah</button>
   <button id="btnSwitchFaceCam" class="btn-block btn-secondary" style="display:none;">🔄 Ganti Kamera</button>
 
+  <!-- ===== Pilih mode: Serah Terima (ambil) atau Kembalikan Barang (return) ===== -->
+  <div id="modeCard" class="card" style="display:none;">
+    <p class="card-label">Mau ngapain?</p>
+    <button id="btnModeServahTerima" class="btn-block btn-accent">📦 Serah Terima Barang</button>
+    <button id="btnModeReturn" class="btn-block btn-secondary">↩️ Kembalikan Barang</button>
+  </div>
+
   <!-- ===== FORM STOREMAN: cari material, kumpulin ke daftar serah terima ===== -->
   <div id="materialCard" class="card" style="display:none;">
     <p class="card-label">Serah Terima Barang — Site <span id="materialSiteLabel"></span></p>
@@ -130,6 +137,27 @@
     <textarea id="handoverNotes" rows="2"></textarea>
 
     <button id="btnSerahTerima" class="btn-block btn-accent">Serah Terima (Scan Penerima)</button>
+  </div>
+
+  <!-- ===== FORM STOREMAN: kembalikan sisa barang yang belum kepake ke gudang ===== -->
+  <div id="returnCard" class="card" style="display:none;">
+    <p class="card-label">Kembalikan Barang ke Gudang</p>
+
+    <label class="field-label">Project (Operational)</label>
+    <select id="returnProject"><option value="">Pilih Project...</option></select>
+
+    <label class="field-label" style="margin-top:14px;">No. WO (Work Order)</label>
+    <select id="returnWo" disabled><option value="">Pilih Project dulu...</option></select>
+
+    <button id="btnLoadOutstanding" class="btn-block btn-primary" style="margin-top:14px;" disabled>Muat Barang yang Masih Ada</button>
+
+    <div id="outstandingWrap" style="margin-top:14px;"></div>
+
+    <label class="field-label" style="margin-top:14px;">Catatan (opsional)</label>
+    <textarea id="returnNotes" rows="2"></textarea>
+
+    <button id="btnSubmitReturn" class="btn-block btn-accent" style="margin-top:10px;" disabled>Kembalikan</button>
+    <button id="btnCancelReturn" class="btn-block btn-secondary" style="margin-top:10px;">← Batal</button>
   </div>
 
   <button id="btnRetry" class="btn-block btn-secondary" style="display:none;">🔁 Ulangi</button>
@@ -186,8 +214,9 @@ async function loadWorkOrders() {
     const projects = [];
     const seenProjects = new Set();
     workOrderList.forEach(w => { if (!seenProjects.has(w.projectId)) { seenProjects.add(w.projectId); projects.push({ id: w.projectId, name: w.projectName }); } });
-    const projSel = document.getElementById('materialProject');
-    projSel.innerHTML = '<option value="">Pilih Project...</option>' + projects.map(p => `<option value="${p.id}">${escapeAttrText(p.name)}</option>`).join('');
+    const optionsHtml = '<option value="">Pilih Project...</option>' + projects.map(p => `<option value="${p.id}">${escapeAttrText(p.name)}</option>`).join('');
+    document.getElementById('materialProject').innerHTML = optionsHtml;
+    document.getElementById('returnProject').innerHTML = optionsHtml;
   } catch (e) {
     console.warn("Gagal muat daftar WO:", e.message);
   }
@@ -703,8 +732,7 @@ async function initGPS() {
     } catch (e2) {
       showBanner(locBanner, "🟡 GPS tidak bisa diambil. Lokasi tidak tercatat, tapi daftar material tetap ditampilkan.", "info");
       matchedLat = null; matchedLng = null; matchedLocation = null;
-      document.getElementById('materialCard').style.display = "block";
-      await loadAvailableMaterial(projectCode);
+      showModeChoice();
       return;
     }
   }
@@ -723,21 +751,111 @@ async function initGPS() {
     if (!loc || !isInside) {
       matchedLocation = null;
       showBanner(locBanner, "🟡 Lokasi GPS tercatat, tapi di luar area site terdaftar" + (namaLokasi ? " (terdekat: " + namaLokasi + ", " + Math.round(dist) + "m)" : "") + ". Daftar material tetap ditampilkan.", "info");
-      document.getElementById('materialCard').style.display = "block";
-      await loadAvailableMaterial(projectCode);
+      showModeChoice();
       return;
     }
     matchedLocation = { namalokasi: namaLokasi, ...loc };
     showBanner(locBanner, `🟢 Lokasi: ${namaLokasi} (jarak ${Math.round(dist)}m)`, "ok");
-    document.getElementById('materialCard').style.display = "block";
-    await loadAvailableMaterial(projectCode);
+    showModeChoice();
   } catch (e) {
     matchedLocation = null;
     showBanner(locBanner, "🟡 GPS tercatat, tapi gagal cek kecocokan lokasi (" + e.message + "). Daftar material tetap ditampilkan.", "info");
-    document.getElementById('materialCard').style.display = "block";
-    await loadAvailableMaterial(projectCode);
+    showModeChoice();
   }
 }
+
+// ============ Mode: Serah Terima (ambil) vs Kembalikan Barang (return) ============
+function showModeChoice() {
+  document.getElementById('materialCard').style.display = "none";
+  document.getElementById('returnCard').style.display = "none";
+  document.getElementById('modeCard').style.display = "block";
+}
+document.getElementById('btnModeServahTerima').onclick = async () => {
+  document.getElementById('modeCard').style.display = "none";
+  document.getElementById('materialCard').style.display = "block";
+  await loadAvailableMaterial(projectCode);
+};
+document.getElementById('btnModeReturn').onclick = async () => {
+  document.getElementById('modeCard').style.display = "none";
+  document.getElementById('returnCard').style.display = "block";
+  document.getElementById('outstandingWrap').innerHTML = "";
+  document.getElementById('returnNotes').value = "";
+  document.getElementById('btnLoadOutstanding').disabled = true;
+  document.getElementById('btnSubmitReturn').disabled = true;
+  await loadWorkOrders();
+};
+document.getElementById('btnCancelReturn').onclick = showModeChoice;
+
+document.getElementById('returnProject').addEventListener('change', () => {
+  const projId = document.getElementById('returnProject').value;
+  const woSel = document.getElementById('returnWo');
+  document.getElementById('btnLoadOutstanding').disabled = true;
+  document.getElementById('outstandingWrap').innerHTML = "";
+  if (!projId) { woSel.innerHTML = '<option value="">Pilih Project dulu...</option>'; woSel.disabled = true; return; }
+  const filtered = workOrderList.filter(w => w.projectId === projId);
+  woSel.innerHTML = '<option value="">Pilih WO...</option>' + filtered.map(w => `<option value="${w.id}">${escapeAttrText(w.number)} — ${escapeAttrText(w.title)}</option>`).join('');
+  woSel.disabled = false;
+});
+document.getElementById('returnWo').addEventListener('change', () => {
+  document.getElementById('btnLoadOutstanding').disabled = !document.getElementById('returnWo').value;
+  document.getElementById('outstandingWrap').innerHTML = "";
+});
+
+let outstandingList = [];
+document.getElementById('btnLoadOutstanding').onclick = async () => {
+  const woId = document.getElementById('returnWo').value;
+  if (!woId) return;
+  const wrap = document.getElementById('outstandingWrap');
+  wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat...</p>';
+  try {
+    const { data, error } = await supabaseClient.rpc('op_list_outstanding_material', { p_wo_id: woId });
+    if (error) throw error;
+    outstandingList = Array.isArray(data) ? data : [];
+    if (outstandingList.length === 0) {
+      wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Gak ada barang yang masih outstanding buat WO ini.</p>';
+      document.getElementById('btnSubmitReturn').disabled = true;
+      return;
+    }
+    wrap.innerHTML = outstandingList.map(m => `
+      <div class="pending-card">
+        <h4>${(m.itemDescription || '').replace(/[<>&]/g, '')}</h4>
+        <p>Diambil: ${m.qtyConfirmed} ${m.unit || ''} oleh ${(m.confirmedByName || '-').replace(/[<>&]/g, '')} &middot; Sisa: ${m.balance} ${m.unit || ''}</p>
+        <label class="field-label" style="margin-top:8px;">Qty dikembalikan</label>
+        <input type="number" min="0" max="${m.balance}" step="any" data-return-qty="${m.confirmationId}" placeholder="0">
+      </div>
+    `).join('');
+    document.getElementById('btnSubmitReturn').disabled = false;
+  } catch (e) {
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--danger);">Gagal memuat: ' + e.message + '</p>';
+  }
+};
+
+document.getElementById('btnSubmitReturn').onclick = async () => {
+  const rows = [...document.querySelectorAll('[data-return-qty]')]
+    .map(el => ({ confirmationId: Number(el.dataset.returnQty), qty: Number(el.value) }))
+    .filter(r => r.qty > 0);
+  if (rows.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang mau dikembalikan.", "fail"); return; }
+  for (const r of rows) {
+    const item = outstandingList.find(m => m.confirmationId === r.confirmationId);
+    if (item && r.qty > item.balance) { showBanner(resultBanner, `🔴 Qty kembali untuk ${item.itemDescription} melebihi sisa (${item.balance}).`, "fail"); return; }
+  }
+  const notes = document.getElementById('returnNotes').value || null;
+  document.getElementById('btnSubmitReturn').disabled = true;
+  setStatus("Menyimpan pengembalian...", "info");
+  statusEl.style.display = "block";
+  try {
+    const payload = rows.map(r => ({ ConfirmationID: r.confirmationId, QtyReturned: r.qty, ReturnedBy: verifiedId, Notes: notes }));
+    const { error } = await supabaseClient.from('materialReturn').insert(payload);
+    if (error) throw error;
+    statusEl.style.display = "none";
+    showBanner(resultBanner, `✅ ${rows.length} item berhasil dikembalikan ke gudang oleh ${verifiedNama}.`, "ok");
+    showModeChoice();
+  } catch (e) {
+    statusEl.style.display = "none";
+    showBanner(resultBanner, "🔴 Gagal menyimpan pengembalian: " + e.message, "fail");
+    document.getElementById('btnSubmitReturn').disabled = false;
+  }
+};
 
 // ============ helper: daftar POID yang termasuk project tertentu ============
 // request (PROJECTID) -> rfqDetail (RequestID -> RFQID) -> purchaseOrder (RFQID)
@@ -1092,8 +1210,7 @@ async function submitHandover() {
     document.getElementById('materialWo').disabled = true;
     scanPurpose = "self";
     currentFacingModeFace = "user";
-    document.getElementById('materialCard').style.display = "block";
-    await loadAvailableMaterial(projectCode);
+    showModeChoice();
   } catch (e) {
     statusEl.style.display = "none";
     showBanner(resultBanner, "🔴 Gagal menyimpan serah terima: " + e.message, "fail");
