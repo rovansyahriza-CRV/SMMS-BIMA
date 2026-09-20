@@ -111,7 +111,13 @@
   <div id="materialCard" class="card" style="display:none;">
     <p class="card-label">Serah Terima Barang — Site <span id="materialSiteLabel"></span></p>
 
-    <label class="field-label">Cari Material</label>
+    <label class="field-label">Project (Operational)</label>
+    <select id="materialProject"><option value="">Pilih Project...</option></select>
+
+    <label class="field-label" style="margin-top:14px;">No. WO (Work Order) — supaya muncul otomatis di Daily Report Operational</label>
+    <select id="materialWo" disabled><option value="">Pilih Project dulu...</option></select>
+
+    <label class="field-label" style="margin-top:14px;">Cari Material</label>
     <input type="text" id="materialSearch" placeholder="Ketik nama item...">
     <div id="materialResults" style="margin-top:6px;"></div>
 
@@ -162,6 +168,40 @@ let recipientKualifikasi = "";                  // Kualifikasi end user (dari ka
 let materialList = [];
 let cart = [];
 let notesHandover = null;
+let workOrderList = [];
+let selectedWoId = null;
+
+// Daftar WO (Operational) buat dipilih storeman -- ditulis ke endUserReceiving.woID pas
+// serah terima, biar Daily Report Operational bisa nampilin material yang diserahkan
+// otomatis per WO+tanggal. RPC publik (gak butuh session token) karena halaman ini identitasnya
+// via scan wajah/QR, bukan login username+password kayak app Operational.
+function escapeAttrText(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+async function loadWorkOrders() {
+  if (workOrderList.length) return;
+  try {
+    const { data, error } = await supabaseClient.rpc('op_list_work_orders_public');
+    if (error) throw error;
+    workOrderList = Array.isArray(data) ? data : [];
+    const projects = [];
+    const seenProjects = new Set();
+    workOrderList.forEach(w => { if (!seenProjects.has(w.projectId)) { seenProjects.add(w.projectId); projects.push({ id: w.projectId, name: w.projectName }); } });
+    const projSel = document.getElementById('materialProject');
+    projSel.innerHTML = '<option value="">Pilih Project...</option>' + projects.map(p => `<option value="${p.id}">${escapeAttrText(p.name)}</option>`).join('');
+  } catch (e) {
+    console.warn("Gagal muat daftar WO:", e.message);
+  }
+}
+
+document.getElementById('materialProject').addEventListener('change', () => {
+  const projId = document.getElementById('materialProject').value;
+  const woSel = document.getElementById('materialWo');
+  selectedWoId = null;
+  if (!projId) { woSel.innerHTML = '<option value="">Pilih Project dulu...</option>'; woSel.disabled = true; return; }
+  const filtered = workOrderList.filter(w => w.projectId === projId);
+  woSel.innerHTML = '<option value="">Pilih WO...</option>' + filtered.map(w => `<option value="${w.id}">${escapeAttrText(w.number)} — ${escapeAttrText(w.title)}</option>`).join('');
+  woSel.disabled = false;
+});
 
 const locBanner = document.getElementById('locBanner');
 const resultBanner = document.getElementById('resultBanner');
@@ -719,6 +759,7 @@ async function getProjectPOIds(projCode) {
 
 // ============ 6. Stok material tersedia di site ini (siteReceiving dikurangi endUserReceiving) ============
 async function loadAvailableMaterial(projCode) {
+  loadWorkOrders();
   const resultsEl = document.getElementById('materialResults');
   resultsEl.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat daftar material...</p>';
   materialList = [];
@@ -904,6 +945,8 @@ function renderCart() {
 
 // ============ 8. Serah Terima -- validasi cart, lalu pindah ke fase scan penerima (kamera belakang) ============
 document.getElementById('btnSerahTerima').onclick = () => {
+  selectedWoId = document.getElementById('materialWo').value || null;
+  if (!selectedWoId) { showBanner(resultBanner, "🔴 Pilih No. WO dulu sebelum serah terima.", "fail"); return; }
   const validRows = cart.filter(c => c.qty > 0);
   if (validRows.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang mau diserahkan.", "fail"); return; }
   for (const c of validRows) {
@@ -931,7 +974,7 @@ async function submitHandover() {
         if (remaining <= 0) break;
         const take = Math.min(remaining, b.sisa);
         if (take > 0) {
-          payload.push({ ReceivingID: b.ReceivingID, QtyConfirmed: take, ConfirmedBy: recipientId, IssuedBy: verifiedId, Notes: notesHandover });
+          payload.push({ ReceivingID: b.ReceivingID, QtyConfirmed: take, ConfirmedBy: recipientId, IssuedBy: verifiedId, Notes: notesHandover, woID: selectedWoId });
           remaining -= take;
         }
       }
@@ -1043,6 +1086,10 @@ async function submitHandover() {
     document.getElementById('handoverNotes').value = '';
     document.getElementById('handoverPhoto').value = '';
     document.getElementById('materialSearch').value = '';
+    selectedWoId = null;
+    document.getElementById('materialProject').value = '';
+    document.getElementById('materialWo').innerHTML = '<option value="">Pilih Project dulu...</option>';
+    document.getElementById('materialWo').disabled = true;
     scanPurpose = "self";
     currentFacingModeFace = "user";
     document.getElementById('materialCard').style.display = "block";
