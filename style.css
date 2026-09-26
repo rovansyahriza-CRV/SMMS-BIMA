@@ -81,6 +81,8 @@ body.layout-sidebar {
   gap: 8px;
   padding: 0 16px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .menu-label {
