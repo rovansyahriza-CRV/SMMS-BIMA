@@ -2433,6 +2433,35 @@ async function vqaLoadList() {
   }
 }
 
+// Status vendor RFQ itu sebenarnya 1 pipeline linear yang ngelewatin beberapa tabel:
+// rfqVendor (submit penawaran -> diusulkan/tidak terpilih -> approval management ->
+// konfirmasi vendor) lanjut ke purchaseOrder (draft -> menunggu approval -> terbit ->
+// barang tiba di site). Fungsi ini nentuin tahap PALING JAUH yang udah dicapai buat
+// ditampilin sebagai 1 badge status, bukan nge-dump semua kolom mentah-mentah.
+function vqaResolveStageLabel(rv, po) {
+  if (po) {
+    if (po.Status === 'Barang Tiba di Site') return { label: 'Material/Item Sudah Terkirim', color: '#27AE60' };
+    if (po.Status === 'Approved') return { label: 'PO/SO Terbit', color: '#27AE60' };
+    if (po.Status === 'Ditolak Management') return { label: 'PO/SO Ditolak Management', color: '#c0392b' };
+    if (po.Status === 'Menunggu Approval') return { label: 'PO/SO Menunggu Approval', color: '#B7791F' };
+    if (po.Status === 'Draft') return { label: 'Draft PO/SO Dibuat', color: '#B7791F' };
+  }
+
+  if (rv.ManagementApproval === 'Approved') {
+    if (rv.ConfirmationStatus === 'Confirmed') return { label: 'Sudah Konfirmasi Pemenang', color: '#27AE60' };
+    if (rv.ConfirmationStatus === 'Rejected') return { label: 'Vendor Menolak Jadi Pemenang', color: '#c0392b' };
+    return { label: 'Belum Konfirmasi Pemenang', color: '#B7791F' };
+  }
+  if (rv.ManagementApproval === 'Rejected') return { label: 'Ditolak Management', color: '#c0392b' };
+
+  if (rv.Status === 'Diusulkan') return { label: 'Diusulkan Jadi Pemenang', color: '#B7791F' };
+  if (rv.Status === 'Tidak Terpilih') return { label: 'Tidak Terpilih', color: '#c0392b' };
+
+  if (rv.ConfirmationStatus === 'Submitted') return { label: 'Sudah Input Penawaran', color: '#27AE60' };
+
+  return { label: 'Menunggu Penawaran', color: '#B7791F' };
+}
+
 async function vqaLoadVendorsForRfq(rfqId) {
   const tbl = document.getElementById('tableVqaVendorList');
   const tbody = document.getElementById('vqaVendorListBody');
@@ -2457,19 +2486,24 @@ async function vqaLoadVendorsForRfq(rfqId) {
     }
 
     const vendorIds = [...new Set(rvRows.map(r => r.VendorID))];
-    const { data: vendorRows } = await supabaseClient.from('vendor').select('VendorID, VendorName').in('VendorID', vendorIds);
+    const rfqVendorIds = rvRows.map(r => r.RFQVendorID);
+    const [{ data: vendorRows }, { data: poRows }] = await Promise.all([
+      supabaseClient.from('vendor').select('VendorID, VendorName').in('VendorID', vendorIds),
+      supabaseClient.from('purchaseOrder').select('RFQVendorID, Status').in('RFQVendorID', rfqVendorIds)
+    ]);
     const vendorIdToName = {};
     (vendorRows || []).forEach(v => { vendorIdToName[v.VendorID] = v.VendorName; });
+    const rfqVendorIdToPo = {};
+    (poRows || []).forEach(po => { rfqVendorIdToPo[po.RFQVendorID] = po; });
 
     tbody.innerHTML = '';
     rvRows.forEach(rv => {
-      const isSubmitted = rv.ConfirmationStatus === 'Submitted';
-      const statusLabel = isSubmitted ? 'Sudah Terkirim' : 'Menunggu Penawaran';
-      const badgeColor = isSubmitted ? '#27AE60' : '#B7791F';
+      const isSubmitted = rv.ConfirmationStatus === 'Submitted' || rv.ConfirmationStatus === 'Confirmed';
+      const stage = vqaResolveStageLabel(rv, rfqVendorIdToPo[rv.RFQVendorID]);
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${vendorIdToName[rv.VendorID] || 'Vendor #' + rv.VendorID}</strong></td>
-        <td><span style="color:${badgeColor}; font-weight:700; font-size:12px;">${statusLabel}</span></td>
+        <td><span style="color:${stage.color}; font-weight:700; font-size:12px;">${stage.label}</span></td>
         <td style="text-align:center;">
           <button type="button" class="btn-logout-card" style="padding:6px 12px; display:inline-flex;" onclick="vqaOpenForm(${rv.RFQVendorID}, ${rv.RFQID}, ${rv.VendorID})">
             <span>${isSubmitted ? '✏️ Edit Penawaran' : '📝 Isi Penawaran'}</span>
