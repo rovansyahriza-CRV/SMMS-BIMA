@@ -2462,6 +2462,12 @@ function vqaResolveStageLabel(rv, po) {
   return { label: 'Menunggu Penawaran', color: '#B7791F' };
 }
 
+// PO/SO dianggap "final" begitu Approved (terbit) atau barang udah nyampe site --
+// harga di titik ini udah gak bisa diubah lagi.
+function vqaIsPoDecided(status) {
+  return status === 'Approved' || status === 'Barang Tiba di Site';
+}
+
 async function vqaLoadVendorsForRfq(rfqId) {
   const tbl = document.getElementById('tableVqaVendorList');
   const tbody = document.getElementById('vqaVendorListBody');
@@ -2496,11 +2502,16 @@ async function vqaLoadVendorsForRfq(rfqId) {
     const rfqVendorIdToPo = {};
     (poRows || []).forEach(po => { rfqVendorIdToPo[po.RFQVendorID] = po; });
 
+    // Begitu RFQ ini udah punya pemenang & PO/SO-nya terbit (di vendor MANA PUN dalam
+    // RFQ yang sama), seluruh vendor di RFQ ini ikut dikunci -- termasuk yang "Tidak
+    // Terpilih", karena kompetisi RFQ-nya udah selesai/diputuskan.
+    const rfqIsDecided = (poRows || []).some(po => vqaIsPoDecided(po.Status));
+
     tbody.innerHTML = '';
     rvRows.forEach(rv => {
       const isSubmitted = rv.ConfirmationStatus === 'Submitted' || rv.ConfirmationStatus === 'Confirmed';
       const po = rfqVendorIdToPo[rv.RFQVendorID];
-      const isLocked = !!(po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site'));
+      const isLocked = rfqIsDecided;
       const stage = vqaResolveStageLabel(rv, po);
       let btnLabel = '📝 Isi Penawaran';
       if (isLocked) btnLabel = '🔒 Lihat Penawaran';
@@ -2542,7 +2553,7 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
       supabaseClient.from('rfqDetail').select('*').eq('RFQID', rfqId),
       supabaseClient.from('rfqQuote').select('*').eq('VendorID', vendorId),
       supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorId),
-      supabaseClient.from('purchaseOrder').select('POID, Status').eq('RFQVendorID', rfqVendorId)
+      supabaseClient.from('purchaseOrder').select('POID, RFQVendorID, VendorID, Status').eq('RFQID', rfqId)
     ]);
     if (rfqErr) throw rfqErr;
     if (venErr) throw venErr;
@@ -2555,6 +2566,11 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
     const existingQuotes = {};
     (quoteRows || []).forEach(q => { existingQuotes[q.RFQDetailID] = q; });
 
+    // poRows di sini SEMUA PO di RFQ ini (bukan cuma punya vendor yang lagi dibuka) --
+    // dipakai buat nentuin RFQ-nya udah "diputuskan" apa belum, bukan cuma PO vendor ini.
+    const rfqIsDecided = (poRows || []).some(po => vqaIsPoDecided(po.Status));
+    const myPo = (poRows || []).find(po => po.RFQVendorID === rfqVendorId) || null;
+
     vqaState = {
       rfqVendorId, rfqId, vendorId,
       rfqHeader: (rfqRows || [])[0],
@@ -2563,7 +2579,8 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
       rfqItems: itemRows || [],
       existingQuotes,
       existingTerm: (termRows || [])[0] || null,
-      po: (poRows || [])[0] || null
+      rfqIsDecided,
+      po: myPo
     };
 
     if (!vqaState.rfqHeader || !vqaState.vendorData || !vqaState.rfqVendorRow) {
@@ -2592,14 +2609,14 @@ function vqaFormatCurrencyInput(el) {
 }
 
 function vqaRenderForm() {
-  const { rfqHeader, vendorData, rfqVendorRow, rfqItems, existingQuotes, existingTerm, po } = vqaState;
+  const { rfqHeader, vendorData, rfqVendorRow, rfqItems, existingQuotes, existingTerm, po, rfqIsDecided } = vqaState;
   const isAlreadySubmitted = rfqVendorRow.ConfirmationStatus === 'Submitted' || rfqVendorRow.ConfirmationStatus === 'Confirmed';
 
-  // Dikunci begitu PO/SO udah resmi terbit (Approved) atau barang udah nyampe site --
-  // harga di titik ini udah final dipakai buat dokumen PO, jadi gak boleh diubah lagi
-  // dari sini. Tahap sebelum itu (Diusulkan, Approved seleksi, Konfirmasi Vendor, Draft
-  // PO, PO Menunggu Approval) masih bebas dikoreksi admin.
-  const isLocked = !!(po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site'));
+  // Dikunci begitu RFQ ini udah "diputuskan" -- PO/SO udah terbit (Approved) atau barang
+  // udah nyampe site, di vendor MANA PUN dalam RFQ yang sama. Ini nyakup juga vendor yang
+  // "Tidak Terpilih" -- begitu RFQ-nya udah ada pemenang & PO-nya terbit, kompetisinya
+  // selesai, jadi seluruh penawaran di RFQ itu ikut dikunci, bukan cuma punya si pemenang.
+  const isLocked = rfqIsDecided;
   const disabledAttr = isLocked ? 'disabled' : '';
 
   const rowsHtml = rfqItems.map((item, idx) => {
@@ -2631,9 +2648,12 @@ function vqaRenderForm() {
   const dpPercentVal = existingTerm ? (existingTerm.DPPercentage || '') : '';
   const notesVal = rfqVendorRow.Notes || '';
 
+  const lockedMsg = po
+    ? `PO/SO untuk vendor ini sudah ${po.Status === 'Barang Tiba di Site' ? 'diterima barangnya' : 'terbit'}, jadi harga & syarat komersial gak bisa diubah lagi dari sini.`
+    : `RFQ ini sudah ada pemenangnya dan PO/SO sudah terbit ke vendor lain, jadi seluruh penawaran di RFQ ini ikut dikunci.`;
   const lockedBanner = isLocked ? `
     <div style="background:#fffbeb; border:1.5px solid #fde68a; border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#92400e; line-height:1.4;">
-      🔒 <strong>Penawaran Dikunci:</strong> PO/SO untuk vendor ini sudah ${po.Status === 'Barang Tiba di Site' ? 'diterima barangnya' : 'terbit'}, jadi harga & syarat komersial gak bisa diubah lagi dari sini.
+      🔒 <strong>Penawaran Dikunci:</strong> ${lockedMsg}
     </div>` : '';
 
   document.getElementById('vqaFormContainer').innerHTML = `
@@ -2779,10 +2799,10 @@ function vqaRecalcTotals() {
 
 async function vqaSubmitQuotation() {
   if (!vqaState) return;
-  const { rfqVendorRow, existingQuotes, vendorId, rfqId, po } = vqaState;
+  const { rfqVendorRow, existingQuotes, vendorId, rfqId, rfqIsDecided } = vqaState;
 
-  if (po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site')) {
-    showToast('Penawaran ini sudah dikunci -- PO/SO sudah terbit.', 'error');
+  if (rfqIsDecided) {
+    showToast('Penawaran ini sudah dikunci -- RFQ sudah ada pemenang & PO/SO sudah terbit.', 'error');
     return;
   }
 
