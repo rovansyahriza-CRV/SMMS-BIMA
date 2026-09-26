@@ -219,12 +219,14 @@ async function loadProjectOptions() {
 document.getElementById('projectFilter').addEventListener('change', (e) => {
   scopeFilter = e.target.value === '__all__' ? null : Number(e.target.value);
   loadMonitoring();
+  if (returHistoryData.length > 0) renderReturHistory();
 });
 document.getElementById('categoryFilter').addEventListener('change', (e) => {
   categoryFilter = e.target.value === '__all__' ? null : e.target.value;
   renderSummary();
   renderMonitoring();
   renderStockReport();
+  if (returHistoryData.length > 0) renderReturHistory();
 });
 document.getElementById('btnRefresh').addEventListener('click', () => loadMonitoring());
 
@@ -572,13 +574,21 @@ function renderReturHistory() {
     return;
   }
   const q = (returHistorySearchQuery || '').trim().toLowerCase();
+  // Ikut filter Project & Kategori di atas -- biar konsisten sama tab Status Proses & Laporan
+  // Stok. Project di sini = PROJECTID procurement (yang "punya" stoknya), BUKAN Project
+  // Operational/WO yang dipakai storeman pas serah-terima/retur -- itu 2 hal beda (lihat
+  // catatan "Project" di tiap baris).
   const filtered = returHistoryData.filter(r => {
-    if (!q) return true;
-    const hay = `${r.woNumber || ''} ${r.woTitle || ''} ${r.itemDescription || ''} ${r.returnedByName || ''}`.toLowerCase();
-    return hay.includes(q);
+    if (scopeFilter !== null && scopeFilter !== undefined && Number(r.projectId) !== Number(scopeFilter)) return false;
+    if (categoryFilter && String(r.itemGroup || '').toLowerCase() !== String(categoryFilter).toLowerCase()) return false;
+    if (q) {
+      const hay = `${r.woNumber || ''} ${r.woTitle || ''} ${r.itemDescription || ''} ${r.returnedByName || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
   if (filtered.length === 0) {
-    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada hasil untuk pencarian ini.</p>';
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada hasil untuk cakupan/pencarian ini.</p>';
     return;
   }
   wrap.innerHTML = filtered.map(r => {
@@ -588,7 +598,7 @@ function renderReturHistory() {
       <div class="stock-item-card">
         <h4>${(r.itemDescription || '-').replace(/[<>&]/g, '')}</h4>
         <p>Qty Dikembalikan: <strong>${r.qtyReturned} ${r.unit || ''}</strong> &middot; Site: ${(r.destinationSite || '-').replace(/[<>&]/g, '')}</p>
-        <p>WO: ${(r.woNumber || '-').replace(/[<>&]/g, '')} ${r.woTitle ? '- ' + r.woTitle.replace(/[<>&]/g, '') : ''}</p>
+        <p>Stok balik ke: <strong>Project ${r.projectId != null ? r.projectId : '-'}</strong> (RefNo ${(r.refNo || '-').replace(/[<>&]/g, '')}) &middot; Diretur lewat WO Operational: ${(r.woNumber || '-').replace(/[<>&]/g, '')} ${r.woTitle ? '- ' + r.woTitle.replace(/[<>&]/g, '') : ''}</p>
         <p>Dikembalikan oleh: <strong>${(r.returnedByName || '-').replace(/[<>&]/g, '')}</strong> &middot; ${dateStr}</p>
         ${r.notes ? `<p>Catatan: ${r.notes.replace(/[<>&]/g, '')}</p>` : ''}
         ${photoHtml ? `<p>${photoHtml}</p>` : ''}
