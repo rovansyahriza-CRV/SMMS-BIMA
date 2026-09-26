@@ -2499,14 +2499,19 @@ async function vqaLoadVendorsForRfq(rfqId) {
     tbody.innerHTML = '';
     rvRows.forEach(rv => {
       const isSubmitted = rv.ConfirmationStatus === 'Submitted' || rv.ConfirmationStatus === 'Confirmed';
-      const stage = vqaResolveStageLabel(rv, rfqVendorIdToPo[rv.RFQVendorID]);
+      const po = rfqVendorIdToPo[rv.RFQVendorID];
+      const isLocked = !!(po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site'));
+      const stage = vqaResolveStageLabel(rv, po);
+      let btnLabel = '📝 Isi Penawaran';
+      if (isLocked) btnLabel = '🔒 Lihat Penawaran';
+      else if (isSubmitted) btnLabel = '✏️ Edit Penawaran';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${vendorIdToName[rv.VendorID] || 'Vendor #' + rv.VendorID}</strong></td>
         <td><span style="color:${stage.color}; font-weight:700; font-size:12px;">${stage.label}</span></td>
         <td style="text-align:center;">
           <button type="button" class="btn-logout-card" style="padding:6px 12px; display:inline-flex;" onclick="vqaOpenForm(${rv.RFQVendorID}, ${rv.RFQID}, ${rv.VendorID})">
-            <span>${isSubmitted ? '✏️ Edit Penawaran' : '📝 Isi Penawaran'}</span>
+            <span>${btnLabel}</span>
           </button>
         </td>`;
       tbody.appendChild(tr);
@@ -2528,14 +2533,16 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
       { data: rvRows, error: rvErr },
       { data: itemRows, error: itemErr },
       { data: quoteRows, error: quoteErr },
-      { data: termRows, error: termErr }
+      { data: termRows, error: termErr },
+      { data: poRows, error: poErr }
     ] = await Promise.all([
       supabaseClient.from('rfq').select('*').eq('RFQID', rfqId),
       supabaseClient.from('vendor').select('*').eq('VendorID', vendorId),
       supabaseClient.from('rfqVendor').select('*').eq('RFQVendorID', rfqVendorId),
       supabaseClient.from('rfqDetail').select('*').eq('RFQID', rfqId),
       supabaseClient.from('rfqQuote').select('*').eq('VendorID', vendorId),
-      supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorId)
+      supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorId),
+      supabaseClient.from('purchaseOrder').select('POID, Status').eq('RFQVendorID', rfqVendorId)
     ]);
     if (rfqErr) throw rfqErr;
     if (venErr) throw venErr;
@@ -2543,6 +2550,7 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
     if (itemErr) throw itemErr;
     if (quoteErr) throw quoteErr;
     if (termErr) throw termErr;
+    if (poErr) throw poErr;
 
     const existingQuotes = {};
     (quoteRows || []).forEach(q => { existingQuotes[q.RFQDetailID] = q; });
@@ -2554,7 +2562,8 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
       rfqVendorRow: (rvRows || [])[0],
       rfqItems: itemRows || [],
       existingQuotes,
-      existingTerm: (termRows || [])[0] || null
+      existingTerm: (termRows || [])[0] || null,
+      po: (poRows || [])[0] || null
     };
 
     if (!vqaState.rfqHeader || !vqaState.vendorData || !vqaState.rfqVendorRow) {
@@ -2583,8 +2592,15 @@ function vqaFormatCurrencyInput(el) {
 }
 
 function vqaRenderForm() {
-  const { rfqHeader, vendorData, rfqVendorRow, rfqItems, existingQuotes, existingTerm } = vqaState;
-  const isAlreadySubmitted = rfqVendorRow.ConfirmationStatus === 'Submitted';
+  const { rfqHeader, vendorData, rfqVendorRow, rfqItems, existingQuotes, existingTerm, po } = vqaState;
+  const isAlreadySubmitted = rfqVendorRow.ConfirmationStatus === 'Submitted' || rfqVendorRow.ConfirmationStatus === 'Confirmed';
+
+  // Dikunci begitu PO/SO udah resmi terbit (Approved) atau barang udah nyampe site --
+  // harga di titik ini udah final dipakai buat dokumen PO, jadi gak boleh diubah lagi
+  // dari sini. Tahap sebelum itu (Diusulkan, Approved seleksi, Konfirmasi Vendor, Draft
+  // PO, PO Menunggu Approval) masih bebas dikoreksi admin.
+  const isLocked = !!(po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site'));
+  const disabledAttr = isLocked ? 'disabled' : '';
 
   const rowsHtml = rfqItems.map((item, idx) => {
     const q = existingQuotes[item.RFQDetailID] || {};
@@ -2598,10 +2614,10 @@ function vqaRenderForm() {
         <td><strong>${item.ItemDescription || '-'}</strong></td>
         <td style="text-align:center; font-weight:700;">${item.Qty || 1} ${item.Unit || 'ea'}</td>
         <td style="width:170px;">
-          <input type="text" class="vqa-item-price" inputmode="numeric" placeholder="0" value="${unitPriceVal}" oninput="vqaFormatCurrencyInput(this)" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; text-align:right; font-family:monospace; font-weight:700; box-sizing:border-box;">
+          <input type="text" class="vqa-item-price" inputmode="numeric" placeholder="0" value="${unitPriceVal}" oninput="vqaFormatCurrencyInput(this)" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; text-align:right; font-family:monospace; font-weight:700; box-sizing:border-box;" ${disabledAttr}>
         </td>
         <td style="width:150px;">
-          <input type="date" class="vqa-item-deliv-date" value="${deliveryDateVal}" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; box-sizing:border-box;">
+          <input type="date" class="vqa-item-deliv-date" value="${deliveryDateVal}" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; box-sizing:border-box;" ${disabledAttr}>
         </td>
         <td class="vqa-item-subtotal" style="text-align:right; font-family:monospace; font-weight:700; color:#E04D23; white-space:nowrap;">Rp ${subtotalVal.toLocaleString('id-ID')}</td>
       </tr>`;
@@ -2615,10 +2631,16 @@ function vqaRenderForm() {
   const dpPercentVal = existingTerm ? (existingTerm.DPPercentage || '') : '';
   const notesVal = rfqVendorRow.Notes || '';
 
+  const lockedBanner = isLocked ? `
+    <div style="background:#fffbeb; border:1.5px solid #fde68a; border-radius:10px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#92400e; line-height:1.4;">
+      🔒 <strong>Penawaran Dikunci:</strong> PO/SO untuk vendor ini sudah ${po.Status === 'Barang Tiba di Site' ? 'diterima barangnya' : 'terbit'}, jadi harga & syarat komersial gak bisa diubah lagi dari sini.
+    </div>` : '';
+
   document.getElementById('vqaFormContainer').innerHTML = `
     <div class="card" style="padding:24px;">
       <h3 style="margin-bottom:4px;">2. Input Harga Penawaran</h3>
-      <p class="card-subtitle" style="margin-bottom:16px;">RFQ <strong>${rfqHeader.NoRFQ || '-'}</strong> untuk vendor <strong>${vendorData.VendorName || '-'}</strong>${isAlreadySubmitted ? ' -- <span style="color:#27AE60;">sudah pernah dikirim, edit di bawah kalau perlu koreksi</span>' : ''}</p>
+      <p class="card-subtitle" style="margin-bottom:16px;">RFQ <strong>${rfqHeader.NoRFQ || '-'}</strong> untuk vendor <strong>${vendorData.VendorName || '-'}</strong>${isAlreadySubmitted && !isLocked ? ' -- <span style="color:#27AE60;">sudah pernah dikirim, edit di bawah kalau perlu koreksi</span>' : ''}</p>
+      ${lockedBanner}
 
       <div class="table-responsive">
         <table class="data-table">
@@ -2640,19 +2662,19 @@ function vqaRenderForm() {
       <div class="form-grid" style="padding:0;">
         <div class="input-group">
           <label>Biaya Mobilisasi / Ekspedisi (Rp)</label>
-          <input type="text" id="vqaMobilisasi" inputmode="numeric" placeholder="0" value="${mobilisasiVal}" oninput="vqaFormatCurrencyInput(this)">
+          <input type="text" id="vqaMobilisasi" inputmode="numeric" placeholder="0" value="${mobilisasiVal}" oninput="vqaFormatCurrencyInput(this)" ${disabledAttr}>
         </div>
         <div class="input-group">
           <label>Biaya Jasa / Lain-lain (Rp)</label>
-          <input type="text" id="vqaOtherCost" inputmode="numeric" placeholder="0" value="${otherCostVal}" oninput="vqaFormatCurrencyInput(this)">
+          <input type="text" id="vqaOtherCost" inputmode="numeric" placeholder="0" value="${otherCostVal}" oninput="vqaFormatCurrencyInput(this)" ${disabledAttr}>
         </div>
         <div class="input-group" style="grid-column: 1 / -1;">
           <label>Deskripsi Jasa / Biaya Lain-lain (Opsional)</label>
-          <input type="text" id="vqaOtherServiceDesc" placeholder="Contoh: Biaya Sertifikasi / Instalasi" value="${otherDescVal}">
+          <input type="text" id="vqaOtherServiceDesc" placeholder="Contoh: Biaya Sertifikasi / Instalasi" value="${otherDescVal}" ${disabledAttr}>
         </div>
         <div class="input-group">
           <label>PPN (Pajak Pertambahan Nilai)</label>
-          <select id="vqaPpnType" onchange="vqaHandlePpnChange()">
+          <select id="vqaPpnType" onchange="vqaHandlePpnChange()" ${disabledAttr}>
             <option value="none">Bebas PPN (0%)</option>
             <option value="11" selected>PPN 11% (Otomatis)</option>
             <option value="custom">Nominal PPN Khusus</option>
@@ -2660,11 +2682,11 @@ function vqaRenderForm() {
         </div>
         <div class="input-group" id="vqaGroupPpnCustom" style="display:none;">
           <label>Nominal PPN (Rp)</label>
-          <input type="text" id="vqaPpnAmount" inputmode="numeric" placeholder="0" value="${ppnAmountVal}" oninput="vqaFormatCurrencyInput(this)">
+          <input type="text" id="vqaPpnAmount" inputmode="numeric" placeholder="0" value="${ppnAmountVal}" oninput="vqaFormatCurrencyInput(this)" ${disabledAttr}>
         </div>
         <div class="input-group">
           <label>Termin Pembayaran</label>
-          <select id="vqaPaymentTerm" onchange="vqaHandlePaymentTermChange()">
+          <select id="vqaPaymentTerm" onchange="vqaHandlePaymentTermChange()" ${disabledAttr}>
             <option value="Net 30">Net 30 Hari</option>
             <option value="Net 14">Net 14 Hari</option>
             <option value="COD / Cash on Delivery">COD / Cash on Delivery</option>
@@ -2674,11 +2696,11 @@ function vqaRenderForm() {
         </div>
         <div class="input-group" id="vqaGroupDpPercent" style="display:none;">
           <label>Persentase Uang Muka / DP (%)</label>
-          <input type="number" id="vqaDpPercent" min="1" max="100" placeholder="Contoh: 30" value="${dpPercentVal}">
+          <input type="number" id="vqaDpPercent" min="1" max="100" placeholder="Contoh: 30" value="${dpPercentVal}" ${disabledAttr}>
         </div>
         <div class="input-group" style="grid-column: 1 / -1;">
           <label>Catatan Tambahan dari Vendor (Opsional)</label>
-          <textarea id="vqaVendorNotes" rows="2" placeholder="Contoh: Harga sudah termasuk garansi 1 tahun, franco Balikpapan...">${notesVal}</textarea>
+          <textarea id="vqaVendorNotes" rows="2" placeholder="Contoh: Harga sudah termasuk garansi 1 tahun, franco Balikpapan..." ${disabledAttr}>${notesVal}</textarea>
         </div>
       </div>
 
@@ -2697,9 +2719,10 @@ function vqaRenderForm() {
         </div>
       </div>
 
+      ${isLocked ? '' : `
       <button type="button" id="btnVqaSubmit" class="btn-primary" onclick="vqaSubmitQuotation()">
         💾 ${isAlreadySubmitted ? 'Perbarui Penawaran Harga' : 'Kirim Penawaran Harga'}
-      </button>
+      </button>`}
     </div>`;
 
   document.getElementById('vqaPaymentTerm').value = paymentTermVal;
@@ -2756,11 +2779,16 @@ function vqaRecalcTotals() {
 
 async function vqaSubmitQuotation() {
   if (!vqaState) return;
+  const { rfqVendorRow, existingQuotes, vendorId, rfqId, po } = vqaState;
+
+  if (po && (po.Status === 'Approved' || po.Status === 'Barang Tiba di Site')) {
+    showToast('Penawaran ini sudah dikunci -- PO/SO sudah terbit.', 'error');
+    return;
+  }
+
   const btn = document.getElementById('btnVqaSubmit');
   btn.disabled = true;
   btn.textContent = 'Mengirimkan...';
-
-  const { rfqVendorRow, existingQuotes, vendorId, rfqId } = vqaState;
   const trs = document.querySelectorAll('#vqaItemsTbody tr');
   let hasFilledPrice = false;
   const quotePayloads = [];
