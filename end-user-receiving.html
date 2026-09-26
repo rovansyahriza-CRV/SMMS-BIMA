@@ -195,6 +195,7 @@ let verifiedQrCodeId = "";                      // snapshot QrCodeId storeman (q
 let verifiedKualifikasi = "";                   // snapshot Kualifikasi storeman (dari karyawanTbl, sama alasannya kayak verifiedQrCodeId)
 let recipientId = null, recipientNama = "";     // end user yang nerima barang
 let recipientKualifikasi = "";                  // Kualifikasi end user (dari karyawanTbl)
+let gudangId = null, gudangNama = "";           // petugas gudang yang nerima balik barang pas retur
 
 let materialList = [];
 let cart = [];
@@ -637,6 +638,10 @@ function finalizeVerification() {
     matchInfoEl.style.display = "block";
     matchInfoEl.innerHTML = `✅ Terverifikasi: ${verifiedNama}`;
     resolveAccessAndProceed();
+  } else if (scanPurpose === "gudang") {
+    gudangId = pendingKarId;
+    gudangNama = pendingKarNama;
+    submitReturn();
   } else {
     recipientId = pendingKarId;
     recipientNama = pendingKarNama;
@@ -834,7 +839,10 @@ document.getElementById('btnLoadOutstanding').onclick = async () => {
   }
 };
 
-document.getElementById('btnSubmitReturn').onclick = async () => {
+// ============ 8b. Kembalikan Barang -- validasi qty, lalu pindah ke fase scan Petugas Gudang
+// (kamera belakang) yang nerima balik barangnya. Baru setelah itu ke-scan, submitReturn()
+// yang beneran nyimpen ke materialReturn -- sama polanya kayak Serah Terima -> scan penerima.
+document.getElementById('btnSubmitReturn').onclick = () => {
   const rows = [...document.querySelectorAll('[data-return-qty]')]
     .map(el => ({ confirmationId: Number(el.dataset.returnQty), qty: Number(el.value) }))
     .filter(r => r.qty > 0);
@@ -843,8 +851,23 @@ document.getElementById('btnSubmitReturn').onclick = async () => {
     const item = outstandingList.find(m => m.confirmationId === r.confirmationId);
     if (item && r.qty > item.balance) { showBanner(resultBanner, `🔴 Qty kembali untuk ${item.itemDescription} melebihi sisa (${item.balance}).`, "fail"); return; }
   }
+
+  document.getElementById('returnCard').style.display = "none";
+  scanPurpose = "gudang";
+  currentFacingModeFace = "environment";
+  document.getElementById('entryCardLabel').textContent = "Verifikasi Petugas Gudang (arahkan kamera belakang ke petugas yang nerima)";
+  document.getElementById('entryCard').style.display = "block";
+};
+
+// ============ 9b. Setelah Petugas Gudang terverifikasi -- baru simpan materialReturn ============
+async function submitReturn() {
+  const rows = [...document.querySelectorAll('[data-return-qty]')]
+    .map(el => ({ confirmationId: Number(el.dataset.returnQty), qty: Number(el.value) }))
+    .filter(r => r.qty > 0);
+  if (rows.length === 0) { showBanner(resultBanner, "🔴 Sesi retur tidak lengkap, ulangi dari awal.", "fail"); return; }
+
   const notes = document.getElementById('returnNotes').value || null;
-  document.getElementById('btnSubmitReturn').disabled = true;
+  setStatus("Menyimpan pengembalian...", "info");
   statusEl.style.display = "block";
   try {
     // Foto opsional -- satu foto dipakai buat semua baris retur dalam 1x submit ini, sama
@@ -861,18 +884,25 @@ document.getElementById('btnSubmitReturn').onclick = async () => {
     }
 
     setStatus("Menyimpan pengembalian...", "info");
-    const payload = rows.map(r => ({ ConfirmationID: r.confirmationId, QtyReturned: r.qty, ReturnedBy: verifiedId, Notes: notes, PhotoURL: photoURL, PhotoFileID: photoFileID }));
+    const payload = rows.map(r => ({ ConfirmationID: r.confirmationId, QtyReturned: r.qty, ReturnedBy: verifiedId, ReceivedBy: gudangId, Notes: notes, PhotoURL: photoURL, PhotoFileID: photoFileID }));
     const { error } = await supabaseClient.from('materialReturn').insert(payload);
     if (error) throw error;
+
     statusEl.style.display = "none";
-    showBanner(resultBanner, `✅ ${rows.length} item berhasil dikembalikan ke gudang oleh ${verifiedNama}.`, "ok");
+    showBanner(resultBanner, `✅ ${rows.length} item berhasil dikembalikan oleh storeman <strong>${verifiedNama}</strong>, diterima Petugas Gudang <strong>${gudangNama}</strong>.`, "ok");
+
+    document.getElementById('returnNotes').value = '';
+    document.getElementById('returnPhoto').value = '';
+    outstandingList = [];
+    document.getElementById('outstandingWrap').innerHTML = '';
+    scanPurpose = "self";
+    currentFacingModeFace = "user";
     showModeChoice();
   } catch (e) {
     statusEl.style.display = "none";
     showBanner(resultBanner, "🔴 Gagal menyimpan pengembalian: " + e.message, "fail");
-    document.getElementById('btnSubmitReturn').disabled = false;
   }
-};
+}
 
 // ============ helper: daftar POID yang termasuk project tertentu ============
 // request (PROJECTID) -> rfqDetail (RequestID -> RFQID) -> purchaseOrder (RFQID)

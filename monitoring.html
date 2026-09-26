@@ -582,7 +582,7 @@ function renderReturHistory() {
     if (scopeFilter !== null && scopeFilter !== undefined && Number(r.projectId) !== Number(scopeFilter)) return false;
     if (categoryFilter && String(r.itemGroup || '').toLowerCase() !== String(categoryFilter).toLowerCase()) return false;
     if (q) {
-      const hay = `${r.woNumber || ''} ${r.woTitle || ''} ${r.itemDescription || ''} ${r.returnedByName || ''}`.toLowerCase();
+      const hay = `${r.woNumber || ''} ${r.woTitle || ''} ${r.itemDescription || ''} ${r.returnedByName || ''} ${r.receivedByName || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -599,7 +599,7 @@ function renderReturHistory() {
         <h4>${(r.itemDescription || '-').replace(/[<>&]/g, '')}</h4>
         <p>Qty Dikembalikan: <strong>${r.qtyReturned} ${r.unit || ''}</strong> &middot; Site: ${(r.destinationSite || '-').replace(/[<>&]/g, '')}</p>
         <p>Stok balik ke: <strong>Project ${r.projectId != null ? r.projectId : '-'}</strong> (RefNo ${(r.refNo || '-').replace(/[<>&]/g, '')}) &middot; Diretur lewat WO Operational: ${(r.woNumber || '-').replace(/[<>&]/g, '')} ${r.woTitle ? '- ' + r.woTitle.replace(/[<>&]/g, '') : ''}</p>
-        <p>Dikembalikan oleh: <strong>${(r.returnedByName || '-').replace(/[<>&]/g, '')}</strong> &middot; ${dateStr}</p>
+        <p>Dikembalikan oleh: <strong>${(r.returnedByName || '-').replace(/[<>&]/g, '')}</strong> &middot; Diterima Petugas Gudang: <strong>${(r.receivedByName || '-').replace(/[<>&]/g, '')}</strong> &middot; ${dateStr}</p>
         ${r.notes ? `<p>Catatan: ${r.notes.replace(/[<>&]/g, '')}</p>` : ''}
         ${photoHtml ? `<p>${photoHtml}</p>` : ''}
       </div>`;
