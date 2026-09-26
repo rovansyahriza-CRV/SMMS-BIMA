@@ -255,15 +255,26 @@ body.layout-sidebar {
   color: #4a5568;
 }
 
-.input-group input {
+.input-group input,
+.input-group select,
+.input-group textarea {
   padding: 10px 14px;
   font-size: 13px;
   border: 1px solid #cbd5e0;
   border-radius: 8px;
   outline: none;
+  font-family: inherit;
+  background: #fff;
+  color: inherit;
 }
 
-.input-group input:focus {
+.input-group textarea {
+  resize: vertical;
+}
+
+.input-group input:focus,
+.input-group select:focus,
+.input-group textarea:focus {
   border-color: #E04D23;
   box-shadow: 0 0 0 3px rgba(224, 77, 35, 0.12);
 }

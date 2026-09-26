@@ -1128,6 +1128,12 @@ function applyMenuAccess() {
   const btnRfq = document.getElementById('btnNavRfq') || document.querySelector('.sidebar-nav-btn[onclick*="sec-rfq"]');
   if (btnRfq) btnRfq.style.display = (matchPic('RFQ', 'CREATE RFQ') || matchAuthor('RFQ')) ? 'flex' : 'none';
 
+  // 7b. Input Penawaran Vendor / Admin (dipakai kalau vendor gak bisa isi sendiri lewat
+  // link publik) -- akses sama kayak yang boleh Buat RFQ, orang yang sama biasanya yang
+  // komunikasi langsung sama vendor.
+  const btnVqa = document.getElementById('btnNavVendorQuoteAdmin');
+  if (btnVqa) btnVqa.style.display = (matchPic('RFQ', 'CREATE RFQ') || matchAuthor('RFQ')) ? 'flex' : 'none';
+
   // 8. Seleksi Vendor RFQ (Inisial: SVR / SRFQ / Create RFQ)
   const btnSvr = document.getElementById('btnNavRfqSelection') || document.querySelector('.sidebar-nav-btn[onclick*="sec-rfq-selection"]');
   if (btnSvr) btnSvr.style.display = (matchPic('SVR', 'SRFQ', 'CREATE RFQ')) ? 'flex' : 'none';
@@ -1742,6 +1748,70 @@ async function approveVendor(vendorId) {
   }
 }
 
+// Toggle form "+ Registrasi Vendor Baru" di halaman Approval Vendor. Dipakai kalau vendor
+// gak bisa isi sendiri lewat link publik vendor-register.html -- admin isi atas nama vendor,
+// data tetap masuk Status "Review" (sama persis alur normalnya), tetap wajib di-approve.
+function toggleVendorRegisterForm(forceState) {
+  const card = document.getElementById('vendorRegisterFormCard');
+  if (!card) return;
+  const show = typeof forceState === 'boolean' ? forceState : card.style.display === 'none';
+  card.style.display = show ? 'block' : 'none';
+}
+
+async function submitVendorRegisterAdmin(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnSubmitVendorRegisterAdmin');
+  btn.disabled = true;
+  btn.textContent = 'Mengirim...';
+
+  const data = {
+    VendorName: document.getElementById('vraVendorName').value.trim(),
+    AuthorizeName: document.getElementById('vraAuthorizedName').value.trim(),
+    AuthorizeID: document.getElementById('vraAuthorizedId').value.trim(),
+    Specialist: document.getElementById('vraSpecialist').value.trim(),
+    Catagory: document.getElementById('vraCatagory').value,
+    Address: document.getElementById('vraAddress').value.trim(),
+    ContactNo: document.getElementById('vraContactNo').value.trim(),
+    Email: document.getElementById('vraEmail').value.trim(),
+    NPWP: document.getElementById('vraNpwp').value.trim(),
+    RekeningNo: document.getElementById('vraRekeningNo').value.trim(),
+    Bank: document.getElementById('vraBank').value.trim(),
+    Status: 'Review',
+    VendorListDate: new Date().toISOString()
+  };
+
+  try {
+    // Cek duplikat berdasarkan NPWP atau Email (RPC yang sama dipakai vendor-register.html)
+    if (data.NPWP || data.Email) {
+      const { data: dupRows, error: dupErr } = await supabaseClient.rpc('check_vendor_duplicate', {
+        p_npwp: data.NPWP || null,
+        p_email: data.Email || null
+      });
+      if (dupErr) throw dupErr;
+
+      if (dupRows && dupRows.length > 0) {
+        showToast(`Vendor "${dupRows[0].vendorname}" dengan NPWP/Email ini sudah terdaftar (status: ${dupRows[0].status}).`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Kirim Registrasi';
+        return;
+      }
+    }
+
+    const { error: insertErr } = await supabaseClient.from('vendor').insert(data);
+    if (insertErr) throw insertErr;
+
+    showToast('Vendor berhasil didaftarkan, masuk antrian approval di bawah.', 'success');
+    document.getElementById('formVendorRegisterAdmin').reset();
+    toggleVendorRegisterForm(false);
+    loadVendorList();
+  } catch (err) {
+    showToast('Gagal mendaftarkan vendor: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Kirim Registrasi';
+  }
+}
+
 let rfqRequestData = [];
 let rfqVendorData = [];
 let selectedRequestIds = new Set();
@@ -2320,6 +2390,437 @@ async function loadRfqSelectionDetail(rfqId) {
   html += `<button type="button" style="margin-top:12px;padding:10px 20px;background:#e05a2b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;" onclick="submitVendorSelection()">Usulkan Pemenang</button>`;
 
   content.innerHTML = html;
+}
+
+// ==========================================
+// INPUT PENAWARAN VENDOR (ADMIN) -- dipakai kalau vendor gak bisa isi sendiri lewat link
+// Portal Penawaran RFQ publik (rfq-quote.html). Logic-nya diporting persis dari
+// rfq-quote.html (item pricing + syarat komersial + submit ke rfqQuote/rfqVendorTerm/
+// rfqVendor), cuma dibungkus jadi section di dalam app admin ini. Prefix "vqa" (Vendor
+// Quote Admin) dipakai biar gak bentrok sama fungsi rfq-selection yang mirip di atas.
+// ==========================================
+
+let vqaState = null;
+
+async function vqaLoadList() {
+  const select = document.getElementById('selectRfqForVqa');
+  if (!select) return;
+  select.innerHTML = '<option value="">-- Pilih RFQ --</option>';
+  document.getElementById('vqaVendorListBody').innerHTML = '';
+  document.getElementById('tableVqaVendorList').style.display = 'none';
+  document.getElementById('vqaFormContainer').innerHTML = '';
+  vqaState = null;
+
+  try {
+    const { data: rvRows, error } = await supabaseClient.from('rfqVendor').select('RFQID');
+    if (error) throw error;
+
+    const rfqIds = [...new Set((rvRows || []).map(r => r.RFQID))];
+    if (rfqIds.length === 0) return;
+
+    const { data: rfqRows, error: rfqErr } = await supabaseClient
+      .from('rfq').select('RFQID, NoRFQ').in('RFQID', rfqIds).order('RFQID', { ascending: false });
+    if (rfqErr) throw rfqErr;
+
+    (rfqRows || []).forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.RFQID;
+      opt.textContent = r.NoRFQ || `RFQID ${r.RFQID}`;
+      select.appendChild(opt);
+    });
+  } catch (err) {
+    showToast('Gagal memuat daftar RFQ: ' + err.message, 'error');
+  }
+}
+
+async function vqaLoadVendorsForRfq(rfqId) {
+  const tbl = document.getElementById('tableVqaVendorList');
+  const tbody = document.getElementById('vqaVendorListBody');
+  document.getElementById('vqaFormContainer').innerHTML = '';
+  vqaState = null;
+
+  if (!rfqId) { tbl.style.display = 'none'; tbody.innerHTML = ''; return; }
+
+  tbl.style.display = '';
+  tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Memuat data...</td></tr>';
+
+  try {
+    const { data: rvRows, error } = await supabaseClient
+      .from('rfqVendor')
+      .select('RFQVendorID, RFQID, VendorID, ConfirmationStatus, Status, ManagementApproval')
+      .eq('RFQID', Number(rfqId));
+    if (error) throw error;
+
+    if (!rvRows || rvRows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Belum ada vendor yang diundang di RFQ ini.</td></tr>';
+      return;
+    }
+
+    const vendorIds = [...new Set(rvRows.map(r => r.VendorID))];
+    const { data: vendorRows } = await supabaseClient.from('vendor').select('VendorID, VendorName').in('VendorID', vendorIds);
+    const vendorIdToName = {};
+    (vendorRows || []).forEach(v => { vendorIdToName[v.VendorID] = v.VendorName; });
+
+    tbody.innerHTML = '';
+    rvRows.forEach(rv => {
+      const isSubmitted = rv.ConfirmationStatus === 'Submitted';
+      const statusLabel = isSubmitted ? 'Sudah Terkirim' : 'Menunggu Penawaran';
+      const badgeColor = isSubmitted ? '#27AE60' : '#B7791F';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${vendorIdToName[rv.VendorID] || 'Vendor #' + rv.VendorID}</strong></td>
+        <td><span style="color:${badgeColor}; font-weight:700; font-size:12px;">${statusLabel}</span></td>
+        <td style="text-align:center;">
+          <button type="button" class="btn-logout-card" style="padding:6px 12px; display:inline-flex;" onclick="vqaOpenForm(${rv.RFQVendorID}, ${rv.RFQID}, ${rv.VendorID})">
+            <span>${isSubmitted ? '✏️ Edit Penawaran' : '📝 Isi Penawaran'}</span>
+          </button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#c0392b;">Gagal memuat vendor: ${err.message}</td></tr>`;
+  }
+}
+
+async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
+  const container = document.getElementById('vqaFormContainer');
+  container.innerHTML = '<div class="card" style="padding:24px; text-align:center; color:#7A7571;">Memuat rincian item RFQ...</div>';
+  container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const [
+      { data: rfqRows, error: rfqErr },
+      { data: venRows, error: venErr },
+      { data: rvRows, error: rvErr },
+      { data: itemRows, error: itemErr },
+      { data: quoteRows, error: quoteErr },
+      { data: termRows, error: termErr }
+    ] = await Promise.all([
+      supabaseClient.from('rfq').select('*').eq('RFQID', rfqId),
+      supabaseClient.from('vendor').select('*').eq('VendorID', vendorId),
+      supabaseClient.from('rfqVendor').select('*').eq('RFQVendorID', rfqVendorId),
+      supabaseClient.from('rfqDetail').select('*').eq('RFQID', rfqId),
+      supabaseClient.from('rfqQuote').select('*').eq('VendorID', vendorId),
+      supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorId)
+    ]);
+    if (rfqErr) throw rfqErr;
+    if (venErr) throw venErr;
+    if (rvErr) throw rvErr;
+    if (itemErr) throw itemErr;
+    if (quoteErr) throw quoteErr;
+    if (termErr) throw termErr;
+
+    const existingQuotes = {};
+    (quoteRows || []).forEach(q => { existingQuotes[q.RFQDetailID] = q; });
+
+    vqaState = {
+      rfqVendorId, rfqId, vendorId,
+      rfqHeader: (rfqRows || [])[0],
+      vendorData: (venRows || [])[0],
+      rfqVendorRow: (rvRows || [])[0],
+      rfqItems: itemRows || [],
+      existingQuotes,
+      existingTerm: (termRows || [])[0] || null
+    };
+
+    if (!vqaState.rfqHeader || !vqaState.vendorData || !vqaState.rfqVendorRow) {
+      container.innerHTML = '<div class="card" style="padding:24px; text-align:center; color:#c0392b;">Data RFQ/Vendor tidak ditemukan.</div>';
+      return;
+    }
+
+    vqaRenderForm();
+  } catch (err) {
+    container.innerHTML = `<div class="card" style="padding:24px; text-align:center; color:#c0392b;">Gagal memuat data: ${err.message}</div>`;
+  }
+}
+
+function vqaParseCurrency(val) {
+  if (typeof val === 'number') return val;
+  const clean = String(val || '').replace(/\./g, '').replace(/,/g, '').replace(/\D/g, '');
+  return Number(clean) || 0;
+}
+
+function vqaFormatCurrencyInput(el) {
+  if (!el) return;
+  let raw = String(el.value || '').replace(/\D/g, '');
+  if (!raw) { el.value = ''; vqaRecalcTotals(); return; }
+  el.value = Number(raw).toLocaleString('id-ID');
+  vqaRecalcTotals();
+}
+
+function vqaRenderForm() {
+  const { rfqHeader, vendorData, rfqVendorRow, rfqItems, existingQuotes, existingTerm } = vqaState;
+  const isAlreadySubmitted = rfqVendorRow.ConfirmationStatus === 'Submitted';
+
+  const rowsHtml = rfqItems.map((item, idx) => {
+    const q = existingQuotes[item.RFQDetailID] || {};
+    const unitPriceVal = (q.UnitPrice !== undefined && q.UnitPrice !== null && q.UnitPrice !== '')
+      ? Number(q.UnitPrice).toLocaleString('id-ID') : '';
+    const deliveryDateVal = q.VendorDeliveryDate ? String(q.VendorDeliveryDate).split('T')[0] : '';
+    const subtotalVal = vqaParseCurrency(unitPriceVal) * (Number(item.Qty) || 0);
+    return `
+      <tr data-detailid="${item.RFQDetailID}" data-qty="${item.Qty}">
+        <td style="text-align:center; font-weight:700;">${idx + 1}</td>
+        <td><strong>${item.ItemDescription || '-'}</strong></td>
+        <td style="text-align:center; font-weight:700;">${item.Qty || 1} ${item.Unit || 'ea'}</td>
+        <td style="width:170px;">
+          <input type="text" class="vqa-item-price" inputmode="numeric" placeholder="0" value="${unitPriceVal}" oninput="vqaFormatCurrencyInput(this)" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; text-align:right; font-family:monospace; font-weight:700; box-sizing:border-box;">
+        </td>
+        <td style="width:150px;">
+          <input type="date" class="vqa-item-deliv-date" value="${deliveryDateVal}" style="width:100%; padding:8px 10px; border:1px solid #cbd5e0; border-radius:6px; box-sizing:border-box;">
+        </td>
+        <td class="vqa-item-subtotal" style="text-align:right; font-family:monospace; font-weight:700; color:#E04D23; white-space:nowrap;">Rp ${subtotalVal.toLocaleString('id-ID')}</td>
+      </tr>`;
+  }).join('');
+
+  const mobilisasiVal = (existingTerm && existingTerm.MobilisasiCost) ? Number(existingTerm.MobilisasiCost).toLocaleString('id-ID') : '';
+  const otherCostVal = (existingTerm && existingTerm.OtherServiceCost) ? Number(existingTerm.OtherServiceCost).toLocaleString('id-ID') : '';
+  const otherDescVal = existingTerm ? (existingTerm.OtherServiceDescription || '') : '';
+  const ppnAmountVal = (existingTerm && existingTerm.PPNAmount) ? Number(existingTerm.PPNAmount).toLocaleString('id-ID') : '';
+  const paymentTermVal = existingTerm ? (existingTerm.PaymentTermType || 'Net 30') : 'Net 30';
+  const dpPercentVal = existingTerm ? (existingTerm.DPPercentage || '') : '';
+  const notesVal = rfqVendorRow.Notes || '';
+
+  document.getElementById('vqaFormContainer').innerHTML = `
+    <div class="card" style="padding:24px;">
+      <h3 style="margin-bottom:4px;">2. Input Harga Penawaran</h3>
+      <p class="card-subtitle" style="margin-bottom:16px;">RFQ <strong>${rfqHeader.NoRFQ || '-'}</strong> untuk vendor <strong>${vendorData.VendorName || '-'}</strong>${isAlreadySubmitted ? ' -- <span style="color:#27AE60;">sudah pernah dikirim, edit di bawah kalau perlu koreksi</span>' : ''}</p>
+
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:40px;">No</th>
+              <th>Deskripsi Barang / Jasa</th>
+              <th style="width:100px;">Qty</th>
+              <th>Harga Satuan (Rp)</th>
+              <th>Estimasi Tgl. Kirim</th>
+              <th style="text-align:right;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody id="vqaItemsTbody">${rowsHtml}</tbody>
+        </table>
+      </div>
+
+      <h3 style="margin:20px 0 10px; font-size:15px;">3. Syarat Komersial &amp; Biaya Tambahan</h3>
+      <div class="form-grid" style="padding:0;">
+        <div class="input-group">
+          <label>Biaya Mobilisasi / Ekspedisi (Rp)</label>
+          <input type="text" id="vqaMobilisasi" inputmode="numeric" placeholder="0" value="${mobilisasiVal}" oninput="vqaFormatCurrencyInput(this)">
+        </div>
+        <div class="input-group">
+          <label>Biaya Jasa / Lain-lain (Rp)</label>
+          <input type="text" id="vqaOtherCost" inputmode="numeric" placeholder="0" value="${otherCostVal}" oninput="vqaFormatCurrencyInput(this)">
+        </div>
+        <div class="input-group" style="grid-column: 1 / -1;">
+          <label>Deskripsi Jasa / Biaya Lain-lain (Opsional)</label>
+          <input type="text" id="vqaOtherServiceDesc" placeholder="Contoh: Biaya Sertifikasi / Instalasi" value="${otherDescVal}">
+        </div>
+        <div class="input-group">
+          <label>PPN (Pajak Pertambahan Nilai)</label>
+          <select id="vqaPpnType" onchange="vqaHandlePpnChange()">
+            <option value="none">Bebas PPN (0%)</option>
+            <option value="11" selected>PPN 11% (Otomatis)</option>
+            <option value="custom">Nominal PPN Khusus</option>
+          </select>
+        </div>
+        <div class="input-group" id="vqaGroupPpnCustom" style="display:none;">
+          <label>Nominal PPN (Rp)</label>
+          <input type="text" id="vqaPpnAmount" inputmode="numeric" placeholder="0" value="${ppnAmountVal}" oninput="vqaFormatCurrencyInput(this)">
+        </div>
+        <div class="input-group">
+          <label>Termin Pembayaran</label>
+          <select id="vqaPaymentTerm" onchange="vqaHandlePaymentTermChange()">
+            <option value="Net 30">Net 30 Hari</option>
+            <option value="Net 14">Net 14 Hari</option>
+            <option value="COD / Cash on Delivery">COD / Cash on Delivery</option>
+            <option value="DP + Pelunasan">DP + Pelunasan</option>
+            <option value="Sesuai Kontrak">Sesuai Kontrak / Progress</option>
+          </select>
+        </div>
+        <div class="input-group" id="vqaGroupDpPercent" style="display:none;">
+          <label>Persentase Uang Muka / DP (%)</label>
+          <input type="number" id="vqaDpPercent" min="1" max="100" placeholder="Contoh: 30" value="${dpPercentVal}">
+        </div>
+        <div class="input-group" style="grid-column: 1 / -1;">
+          <label>Catatan Tambahan dari Vendor (Opsional)</label>
+          <textarea id="vqaVendorNotes" rows="2" placeholder="Contoh: Harga sudah termasuk garansi 1 tahun, franco Balikpapan...">${notesVal}</textarea>
+        </div>
+      </div>
+
+      <div style="background:#FAF8F5; border:1.5px solid #E6DED9; border-radius:12px; padding:16px; margin:16px 0;">
+        <div style="display:flex; justify-content:space-between; font-size:13.5px; color:#7A7571; font-weight:600; margin-bottom:6px;">
+          <span>Subtotal Item:</span><span id="vqaSumItemSubtotal">Rp 0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:13.5px; color:#7A7571; font-weight:600; margin-bottom:6px;">
+          <span>Biaya Mobilisasi / Tambahan:</span><span id="vqaSumExtraCost">Rp 0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:13.5px; color:#7A7571; font-weight:600; margin-bottom:6px;">
+          <span>PPN:</span><span id="vqaSumPpn">Rp 0</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:17px; font-weight:800; border-top:2px dashed #E6DED9; padding-top:10px; margin-top:4px;">
+          <span>TOTAL PENAWARAN (GRAND TOTAL):</span><span id="vqaSumGrandTotal" style="color:#E04D23; font-family:monospace;">Rp 0</span>
+        </div>
+      </div>
+
+      <button type="button" id="btnVqaSubmit" class="btn-primary" onclick="vqaSubmitQuotation()">
+        💾 ${isAlreadySubmitted ? 'Perbarui Penawaran Harga' : 'Kirim Penawaran Harga'}
+      </button>
+    </div>`;
+
+  document.getElementById('vqaPaymentTerm').value = paymentTermVal;
+  vqaHandlePpnChange();
+  vqaHandlePaymentTermChange();
+  vqaRecalcTotals();
+}
+
+function vqaHandlePpnChange() {
+  const val = document.getElementById('vqaPpnType').value;
+  document.getElementById('vqaGroupPpnCustom').style.display = (val === 'custom') ? 'flex' : 'none';
+  vqaRecalcTotals();
+}
+
+function vqaHandlePaymentTermChange() {
+  const val = document.getElementById('vqaPaymentTerm').value;
+  document.getElementById('vqaGroupDpPercent').style.display = (val === 'DP + Pelunasan') ? 'flex' : 'none';
+}
+
+function vqaRecalcTotals() {
+  if (!vqaState) return;
+  let itemSubtotal = 0;
+  document.querySelectorAll('#vqaItemsTbody tr').forEach(tr => {
+    const qty = Number(tr.dataset.qty) || 0;
+    const price = vqaParseCurrency(tr.querySelector('.vqa-item-price')?.value);
+    const sub = qty * price;
+    itemSubtotal += sub;
+    const subEl = tr.querySelector('.vqa-item-subtotal');
+    if (subEl) subEl.textContent = `Rp ${sub.toLocaleString('id-ID')}`;
+  });
+
+  const mobilisasi = vqaParseCurrency(document.getElementById('vqaMobilisasi')?.value);
+  const otherCost = vqaParseCurrency(document.getElementById('vqaOtherCost')?.value);
+  const extraTotal = mobilisasi + otherCost;
+
+  const ppnType = document.getElementById('vqaPpnType')?.value || '11';
+  let ppnAmount = 0;
+  if (ppnType === '11') {
+    ppnAmount = Math.round((itemSubtotal + extraTotal) * 0.11);
+  } else if (ppnType === 'custom') {
+    ppnAmount = vqaParseCurrency(document.getElementById('vqaPpnAmount')?.value);
+  }
+
+  const grandTotal = itemSubtotal + extraTotal + ppnAmount;
+
+  const elSub = document.getElementById('vqaSumItemSubtotal');
+  if (elSub) {
+    elSub.textContent = `Rp ${itemSubtotal.toLocaleString('id-ID')}`;
+    document.getElementById('vqaSumExtraCost').textContent = `Rp ${extraTotal.toLocaleString('id-ID')}`;
+    document.getElementById('vqaSumPpn').textContent = `Rp ${ppnAmount.toLocaleString('id-ID')}`;
+    document.getElementById('vqaSumGrandTotal').textContent = `Rp ${grandTotal.toLocaleString('id-ID')}`;
+  }
+}
+
+async function vqaSubmitQuotation() {
+  if (!vqaState) return;
+  const btn = document.getElementById('btnVqaSubmit');
+  btn.disabled = true;
+  btn.textContent = 'Mengirimkan...';
+
+  const { rfqVendorRow, existingQuotes, vendorId, rfqId } = vqaState;
+  const trs = document.querySelectorAll('#vqaItemsTbody tr');
+  let hasFilledPrice = false;
+  const quotePayloads = [];
+
+  let currentMaxQuoteId = 0;
+  try {
+    const { data: maxRows } = await supabaseClient
+      .from('rfqQuote').select('RFQQuoteID').order('RFQQuoteID', { ascending: false }).limit(1);
+    if (maxRows && maxRows.length > 0) currentMaxQuoteId = Number(maxRows[0].RFQQuoteID) || 0;
+  } catch (e) { console.warn('Get max quote ID:', e); }
+
+  for (const tr of trs) {
+    const detailId = Number(tr.dataset.detailid);
+    const qty = Number(tr.dataset.qty) || 0;
+    const price = vqaParseCurrency(tr.querySelector('.vqa-item-price')?.value);
+    const delivDate = tr.querySelector('.vqa-item-deliv-date')?.value || null;
+    if (price > 0) hasFilledPrice = true;
+
+    const existingQ = existingQuotes[detailId];
+    currentMaxQuoteId++;
+
+    quotePayloads.push({
+      RFQQuoteID: existingQ ? existingQ.RFQQuoteID : currentMaxQuoteId,
+      RFQDetailID: detailId,
+      VendorID: vendorId,
+      UnitPrice: price,
+      Qty: qty,
+      VendorDeliveryDate: delivDate,
+      IsSelected: existingQ ? existingQ.IsSelected : 'No'
+    });
+  }
+
+  if (!hasFilledPrice) {
+    showToast('Harap isi harga satuan minimal 1 item.', 'error');
+    btn.disabled = false;
+    btn.textContent = '💾 Kirim Penawaran Harga';
+    return;
+  }
+
+  const mobilisasi = vqaParseCurrency(document.getElementById('vqaMobilisasi')?.value);
+  const otherCost = vqaParseCurrency(document.getElementById('vqaOtherCost')?.value);
+  const otherServiceDesc = document.getElementById('vqaOtherServiceDesc')?.value.trim() || null;
+  const ppnType = document.getElementById('vqaPpnType')?.value;
+  let ppnAmount = 0;
+  let itemSub = 0;
+  quotePayloads.forEach(q => { itemSub += (q.UnitPrice * q.Qty); });
+  if (ppnType === '11') ppnAmount = Math.round((itemSub + mobilisasi + otherCost) * 0.11);
+  else if (ppnType === 'custom') ppnAmount = vqaParseCurrency(document.getElementById('vqaPpnAmount')?.value);
+
+  const paymentTerm = document.getElementById('vqaPaymentTerm').value;
+  const dpPercent = paymentTerm === 'DP + Pelunasan' ? (Number(document.getElementById('vqaDpPercent').value) || 0) : null;
+  const notes = document.getElementById('vqaVendorNotes').value.trim() || null;
+
+  try {
+    // 1. Simpan Quote Items (Upsert, fallback delete+insert kalau conflict target beda)
+    for (const qp of quotePayloads) {
+      const { error: qErr } = await supabaseClient.from('rfqQuote').upsert(qp, { onConflict: 'RFQQuoteID' });
+      if (qErr) {
+        await supabaseClient.from('rfqQuote').delete().eq('RFQDetailID', qp.RFQDetailID).eq('VendorID', qp.VendorID);
+        await supabaseClient.from('rfqQuote').insert(qp);
+      }
+    }
+
+    // 2. Simpan Syarat Komersial
+    const termPayload = {
+      RFQVendorID: rfqVendorRow.RFQVendorID,
+      MobilisasiCost: mobilisasi,
+      OtherServiceCost: otherCost,
+      OtherServiceDescription: otherServiceDesc,
+      PPNAmount: ppnAmount,
+      PaymentTermType: paymentTerm,
+      DPPercentage: dpPercent,
+      SubmitDate: new Date().toISOString()
+    };
+
+    await supabaseClient.from('rfqVendorTerm').delete().eq('RFQVendorID', rfqVendorRow.RFQVendorID);
+    const { error: insErr } = await supabaseClient.from('rfqVendorTerm').insert(termPayload);
+    if (insErr) console.warn('Insert rfqVendorTerm error:', insErr.message);
+
+    // 3. Update Status rfqVendor -> Submitted (persis kayak vendor submit sendiri)
+    await supabaseClient.from('rfqVendor').update({
+      ConfirmationStatus: 'Submitted',
+      ConfirmationDate: new Date().toISOString(),
+      Notes: notes
+    }).eq('RFQVendorID', rfqVendorRow.RFQVendorID);
+
+    showToast('Penawaran vendor berhasil disimpan.', 'success');
+    document.getElementById('vqaFormContainer').innerHTML = '';
+    vqaLoadVendorsForRfq(rfqId);
+  } catch (err) {
+    showToast('Gagal menyimpan penawaran: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '💾 Kirim Penawaran Harga';
+  }
 }
 
 function recalcVendorTotals() {

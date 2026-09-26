@@ -88,6 +88,14 @@
       <span>Buat RFQ</span>
     </button>
 
+    <button type="button" class="sidebar-nav-btn" id="btnNavVendorQuoteAdmin" style="display:none;" onclick="switchMainSection('sec-vendor-quote-admin', this); vqaLoadList();">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1v22"/>
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      </svg>
+      <span>Input Penawaran Vendor</span>
+    </button>
+
     <button type="button" class="sidebar-nav-btn" data-pic="Create RFQ" onclick="switchMainSection('sec-rfq-selection', this); loadRfqSelectionPage();">
     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
@@ -370,7 +378,83 @@
     </section>
 
   <section id="sec-vendor" class="app-section" style="display:none;">
-    <h2>Approval Vendor</h2>   
+    <div class="card-header space-between" style="padding:0; border:none; margin-bottom:14px;">
+      <h2 style="margin:0;">Approval Vendor</h2>
+      <button type="button" class="btn-logout-card" onclick="toggleVendorRegisterForm()" id="btnToggleVendorRegister">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>Registrasi Vendor Baru</span>
+      </button>
+    </div>
+
+    <!-- Form Registrasi Vendor (Input Admin) -- dipakai kalau vendor gak bisa isi sendiri
+         lewat link publik vendor-register.html. Data yang di-submit masuk Status "Review"
+         sama persis kayak kalau vendor isi sendiri, tetap harus di-approve di tabel bawah. -->
+    <div class="card" id="vendorRegisterFormCard" style="display:none; margin-bottom:20px;">
+      <div class="card-header">
+        <h3>+ Registrasi Vendor Baru (Input Admin)</h3>
+        <p class="card-subtitle">Dipakai kalau vendor tidak bisa mengisi sendiri lewat link Portal Registrasi Vendor. Data tetap masuk status "Review" dan harus di-approve di tabel bawah.</p>
+      </div>
+      <form id="formVendorRegisterAdmin" class="form-grid" onsubmit="submitVendorRegisterAdmin(event)">
+        <div class="input-group">
+          <label for="vraVendorName">Nama Perusahaan / Vendor *</label>
+          <input type="text" id="vraVendorName" required>
+        </div>
+        <div class="input-group">
+          <label for="vraAuthorizedName">Nama Penanggung Jawab *</label>
+          <input type="text" id="vraAuthorizedName" required>
+        </div>
+        <div class="input-group">
+          <label for="vraAuthorizedId">No. KTP / ID Penanggung Jawab</label>
+          <input type="text" id="vraAuthorizedId">
+        </div>
+        <div class="input-group">
+          <label for="vraSpecialist">Bidang / Spesialisasi</label>
+          <input type="text" id="vraSpecialist" placeholder="cth: Material Bangunan">
+        </div>
+        <div class="input-group">
+          <label for="vraCatagory">Kategori</label>
+          <select id="vraCatagory">
+            <option value="">-- Pilih Kategori --</option>
+            <option value="Material">Material</option>
+            <option value="Consumables">Consumables</option>
+            <option value="Tools">Tools</option>
+            <option value="HeavyEquipment">Heavy Equipment</option>
+            <option value="Multi Kategori">Multi Kategori</option>
+          </select>
+        </div>
+        <div class="input-group" style="grid-column: 1 / -1;">
+          <label for="vraAddress">Alamat *</label>
+          <textarea id="vraAddress" rows="2" required></textarea>
+        </div>
+        <div class="input-group">
+          <label for="vraContactNo">No. Kontak *</label>
+          <input type="text" id="vraContactNo" required>
+        </div>
+        <div class="input-group">
+          <label for="vraEmail">Email *</label>
+          <input type="email" id="vraEmail" required>
+        </div>
+        <div class="input-group">
+          <label for="vraNpwp">NPWP</label>
+          <input type="text" id="vraNpwp">
+        </div>
+        <div class="input-group">
+          <label for="vraRekeningNo">No. Rekening</label>
+          <input type="text" id="vraRekeningNo">
+        </div>
+        <div class="input-group">
+          <label for="vraBank">Bank</label>
+          <input type="text" id="vraBank">
+        </div>
+        <div class="input-group" style="grid-column: 1 / -1;">
+          <button type="submit" id="btnSubmitVendorRegisterAdmin" class="btn-primary">Kirim Registrasi</button>
+        </div>
+      </form>
+    </div>
+
     <table class="data-table" id="tableVendor">
       <thead>
         <tr>
@@ -482,6 +566,40 @@
       </select>
     </div>
     <div id="rfqSelectionContent"></div>
+  </section>
+
+  <section id="sec-vendor-quote-admin" class="app-section" style="display:none;">
+    <div class="page-title-section">
+      <span class="category-tag">INPUT MANUAL</span>
+      <h2>Input Penawaran Vendor (Admin)</h2>
+      <p>Dipakai kalau vendor tidak bisa mengisi sendiri lewat link Portal Penawaran RFQ -- admin input harga atas nama vendor di sini.</p>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-header">
+        <h3 style="margin:0;">1. Pilih RFQ</h3>
+      </div>
+      <div style="padding:16px 24px;">
+        <label for="selectRfqForVqa"><strong>RFQ:</strong></label><br>
+        <select id="selectRfqForVqa" onchange="vqaLoadVendorsForRfq(this.value)" style="padding:8px 12px; margin-top:6px; min-width:280px; border-radius:8px; border:1.5px solid #e6ded9;">
+          <option value="">-- Pilih RFQ --</option>
+        </select>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="tableVqaVendorList" style="display:none;">
+          <thead>
+            <tr>
+              <th>Nama Vendor</th>
+              <th>Status Konfirmasi</th>
+              <th style="text-align:center;">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="vqaVendorListBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="vqaFormContainer" style="margin-top:20px;"></div>
   </section>
 
   <section id="sec-po-submit" class="app-section" style="display:none;">
