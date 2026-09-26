@@ -153,6 +153,9 @@
 
     <div id="outstandingWrap" style="margin-top:14px;"></div>
 
+    <label class="field-label" style="margin-top:14px;">Foto bukti barang dikembalikan (opsional)</label>
+    <input type="file" id="returnPhoto" accept="image/*" capture="environment">
+
     <label class="field-label" style="margin-top:14px;">Catatan (opsional)</label>
     <textarea id="returnNotes" rows="2"></textarea>
 
@@ -780,6 +783,7 @@ document.getElementById('btnModeReturn').onclick = async () => {
   document.getElementById('returnCard').style.display = "block";
   document.getElementById('outstandingWrap').innerHTML = "";
   document.getElementById('returnNotes').value = "";
+  document.getElementById('returnPhoto').value = "";
   document.getElementById('btnLoadOutstanding').disabled = true;
   document.getElementById('btnSubmitReturn').disabled = true;
   await loadWorkOrders();
@@ -841,10 +845,23 @@ document.getElementById('btnSubmitReturn').onclick = async () => {
   }
   const notes = document.getElementById('returnNotes').value || null;
   document.getElementById('btnSubmitReturn').disabled = true;
-  setStatus("Menyimpan pengembalian...", "info");
   statusEl.style.display = "block";
   try {
-    const payload = rows.map(r => ({ ConfirmationID: r.confirmationId, QtyReturned: r.qty, ReturnedBy: verifiedId, Notes: notes }));
+    // Foto opsional -- satu foto dipakai buat semua baris retur dalam 1x submit ini, sama
+    // persis polanya kayak foto Serah Terima.
+    const photoFile = document.getElementById('returnPhoto').files[0];
+    let photoURL = null, photoFileID = null;
+    if (photoFile) {
+      setStatus("Mengompres foto...", "info");
+      const { compressedBlob } = await compressImageForReport(photoFile);
+      setStatus("Mengupload foto...", "info");
+      const uploaded = await uploadToDrive("photos", `RETURN_${Date.now()}.jpg`, "image/jpeg", compressedBlob);
+      photoURL = buildDriveViewUrl(uploaded);
+      photoFileID = uploaded.fileId;
+    }
+
+    setStatus("Menyimpan pengembalian...", "info");
+    const payload = rows.map(r => ({ ConfirmationID: r.confirmationId, QtyReturned: r.qty, ReturnedBy: verifiedId, Notes: notes, PhotoURL: photoURL, PhotoFileID: photoFileID }));
     const { error } = await supabaseClient.from('materialReturn').insert(payload);
     if (error) throw error;
     statusEl.style.display = "none";

@@ -122,6 +122,7 @@
     <div>
       <span class="chip tab-chip active" data-tab="proses">📋 Status Proses</span>
       <span class="chip tab-chip" data-tab="stok">📦 Laporan Stok</span>
+      <span class="chip tab-chip" data-tab="retur">🔄 Riwayat Retur</span>
     </div>
   </div>
 
@@ -149,6 +150,13 @@
     </div>
     <div id="stockSummaryRow" class="summary-row"></div>
     <div id="stockReportListWrap"></div>
+  </div>
+
+  <div id="tabRetur" style="display:none;">
+    <div class="card">
+      <input type="text" id="returHistorySearch" placeholder="Cari No. WO, nama item, atau nama storeman...">
+    </div>
+    <div id="returHistoryListWrap"></div>
   </div>
 
   <footer class="hint">Klik salah satu baris untuk lihat rincian. Halaman ini bisa diakses siapa saja, tanpa login.</footer>
@@ -328,14 +336,35 @@ async function loadMonitoring() {
     const receivingIds = allSiteRecvRows.map(r => r.ReceivingID);
 
     // -- End User Receiving (per ReceivingID -> naik ke DeliveryID -> naik ke PODetailID) --
+    // Dihitung 2 versi: "gross" (apa adanya, buat tracking progres per Request -- fakta bahwa
+    // barang PERNAH diserahterima gak berubah walau belakangan diretur) dan "net" (dikurangi
+    // materialReturn, khusus buat Laporan Stok -- begitu barang diretur, dia harus lepas dari
+    // "Sudah Handover" dan balik lagi ke "OnHand" karena fisiknya ada lagi di site).
     let euByReceiving = {};
+    let euByReceivingNet = {};
     if (receivingIds.length > 0) {
-      const { data, error } = await supabaseClient.from('endUserReceiving').select('ReceivingID, QtyConfirmed').in('ReceivingID', receivingIds);
+      const { data, error } = await supabaseClient.from('endUserReceiving').select('ConfirmationID, ReceivingID, QtyConfirmed').in('ReceivingID', receivingIds);
       if (error) throw error;
-      (data || []).forEach(r => { euByReceiving[r.ReceivingID] = (euByReceiving[r.ReceivingID] || 0) + Number(r.QtyConfirmed || 0); });
+      const confirmationIds = (data || []).map(r => r.ConfirmationID);
+      let returnedByConfirmation = {};
+      if (confirmationIds.length > 0) {
+        const { data: returnRows, error: returnErr } = await supabaseClient.from('materialReturn').select('ConfirmationID, QtyReturned').in('ConfirmationID', confirmationIds);
+        if (returnErr) throw returnErr;
+        (returnRows || []).forEach(r => { returnedByConfirmation[r.ConfirmationID] = (returnedByConfirmation[r.ConfirmationID] || 0) + Number(r.QtyReturned || 0); });
+      }
+      (data || []).forEach(r => {
+        const qtyConfirmed = Number(r.QtyConfirmed || 0);
+        const qtyReturned = returnedByConfirmation[r.ConfirmationID] || 0;
+        euByReceiving[r.ReceivingID] = (euByReceiving[r.ReceivingID] || 0) + qtyConfirmed;
+        euByReceivingNet[r.ReceivingID] = (euByReceivingNet[r.ReceivingID] || 0) + Math.max(0, qtyConfirmed - qtyReturned);
+      });
     }
     const euByDelivery = {};
-    allSiteRecvRows.forEach(r => { euByDelivery[r.DeliveryID] = (euByDelivery[r.DeliveryID] || 0) + (euByReceiving[r.ReceivingID] || 0); });
+    const euByDeliveryNet = {};
+    allSiteRecvRows.forEach(r => {
+      euByDelivery[r.DeliveryID] = (euByDelivery[r.DeliveryID] || 0) + (euByReceiving[r.ReceivingID] || 0);
+      euByDeliveryNet[r.DeliveryID] = (euByDeliveryNet[r.DeliveryID] || 0) + (euByReceivingNet[r.ReceivingID] || 0);
+    });
 
     // ============ Rakit hasil akhir per baris Request (+ akumulasi Laporan Stok bareng jalan) ============
     const stockMap = {}; // key -> {ItemGroup, ItemID, ItemDescription, Unit, totalRequested, totalOnHand, totalHandedOver, siteOnHand:{site:qty}}
@@ -389,6 +418,9 @@ async function loadMonitoring() {
 
       const qtySiteReceived = deliveries.reduce((s, d) => s + (srByDelivery[d.DeliveryID] || 0), 0);
       const qtyEndUser = deliveries.reduce((s, d) => s + (euByDelivery[d.DeliveryID] || 0), 0);
+      // Versi net (dikurangi retur) -- KHUSUS buat akumulasi Laporan Stok di bawah, bukan buat
+      // status progres per-Request (qtyEndUser di atas tetap gross, fakta historis gak berubah).
+      const qtyEndUserNet = deliveries.reduce((s, d) => s + (euByDeliveryNet[d.DeliveryID] || 0), 0);
 
       // -- akumulasi ke Laporan Stok: sedang proses order / OnHand di site (per site) / sudah handover --
       // Dikecualikan: ServiceOrder (jasa, bukan barang fisik yang bisa "distok").
@@ -405,9 +437,9 @@ async function loadMonitoring() {
         const sm = stockMap[stockKey];
         sm.totalRequested += qtyRequestedNum;
         sm.totalVendorReceived += qtyVendorReceived;
-        sm.totalHandedOver += qtyEndUser;
+        sm.totalHandedOver += qtyEndUserNet;
         deliveries.forEach(d => {
-          const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDelivery[d.DeliveryID] || 0);
+          const onHandHere = (srByDelivery[d.DeliveryID] || 0) - (euByDeliveryNet[d.DeliveryID] || 0);
           if (onHandHere > 0) {
             sm.totalOnHand += onHandHere;
             const site = d.DestinationSite || '-';
@@ -498,7 +530,7 @@ document.querySelectorAll('.chip:not(.tab-chip)').forEach(chip => {
   });
 });
 
-// ============ Tab switch: Status Proses <-> Laporan Stok ============
+// ============ Tab switch: Status Proses <-> Laporan Stok <-> Riwayat Retur ============
 document.querySelectorAll('.tab-chip').forEach(chip => {
   chip.addEventListener('click', () => {
     document.querySelectorAll('.tab-chip').forEach(c => c.classList.remove('active'));
@@ -506,8 +538,63 @@ document.querySelectorAll('.tab-chip').forEach(chip => {
     activeTab = chip.dataset.tab;
     document.getElementById('tabProses').style.display = activeTab === 'proses' ? 'block' : 'none';
     document.getElementById('tabStok').style.display = activeTab === 'stok' ? 'block' : 'none';
+    document.getElementById('tabRetur').style.display = activeTab === 'retur' ? 'block' : 'none';
+    if (activeTab === 'retur' && returHistoryData.length === 0) loadReturHistory();
   });
 });
+
+// ============ 4. Riwayat Retur -- daftar transaksi materialReturn (siapa, kapan, item, qty, WO) ============
+let returHistoryData = [];
+let returHistorySearchQuery = '';
+
+async function loadReturHistory() {
+  const wrap = document.getElementById('returHistoryListWrap');
+  wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Memuat riwayat retur...</p>';
+  try {
+    const { data, error } = await supabaseClient.rpc('op_list_material_returns');
+    if (error) throw error;
+    returHistoryData = Array.isArray(data) ? data : [];
+    renderReturHistory();
+  } catch (e) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--danger);">Gagal memuat riwayat retur: ${e.message}</p>`;
+  }
+}
+
+document.getElementById('returHistorySearch').addEventListener('input', (e) => {
+  returHistorySearchQuery = e.target.value;
+  renderReturHistory();
+});
+
+function renderReturHistory() {
+  const wrap = document.getElementById('returHistoryListWrap');
+  if (returHistoryData.length === 0) {
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Belum ada barang yang diretur ke gudang.</p>';
+    return;
+  }
+  const q = (returHistorySearchQuery || '').trim().toLowerCase();
+  const filtered = returHistoryData.filter(r => {
+    if (!q) return true;
+    const hay = `${r.woNumber || ''} ${r.woTitle || ''} ${r.itemDescription || ''} ${r.returnedByName || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<p style="font-size:13px;color:var(--text-muted);">Tidak ada hasil untuk pencarian ini.</p>';
+    return;
+  }
+  wrap.innerHTML = filtered.map(r => {
+    const dateStr = r.returnDate ? new Date(r.returnDate).toLocaleString('id-ID', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
+    const photoHtml = r.photoUrl ? `<a href="${r.photoUrl}" target="_blank" rel="noopener" style="font-size:12px; color:var(--steel-light); font-weight:700;">📷 Lihat Foto</a>` : '';
+    return `
+      <div class="stock-item-card">
+        <h4>${(r.itemDescription || '-').replace(/[<>&]/g, '')}</h4>
+        <p>Qty Dikembalikan: <strong>${r.qtyReturned} ${r.unit || ''}</strong> &middot; Site: ${(r.destinationSite || '-').replace(/[<>&]/g, '')}</p>
+        <p>WO: ${(r.woNumber || '-').replace(/[<>&]/g, '')} ${r.woTitle ? '- ' + r.woTitle.replace(/[<>&]/g, '') : ''}</p>
+        <p>Dikembalikan oleh: <strong>${(r.returnedByName || '-').replace(/[<>&]/g, '')}</strong> &middot; ${dateStr}</p>
+        ${r.notes ? `<p>Catatan: ${r.notes.replace(/[<>&]/g, '')}</p>` : ''}
+        ${photoHtml ? `<p>${photoHtml}</p>` : ''}
+      </div>`;
+  }).join('');
+}
 
 function renderMonitoring() {
   const listWrap = document.getElementById('monitoringListWrap');
