@@ -85,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 async function initAuthSession() {
-  const savedUser = localStorage.getItem('bima_user');
+  const savedUser = sessionStorage.getItem('bima_user');
   if (savedUser) {
     currentUser = JSON.parse(savedUser);
     updateUIAuth();
@@ -105,7 +105,7 @@ async function initAuthSession() {
         const authorStr = (currentUser.Author || '').toLowerCase();
         const isAllAdmin = picList.includes('all') || picList.includes('*') || authorStr.split(',').map(s => s.trim()).includes('all');
         currentUser.canInputMaster = isAllAdmin || picList.includes('input master resources') || picList.includes('mr');
-        localStorage.setItem('bima_user', JSON.stringify(currentUser));
+        sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
         applyMenuAccess();
       }
     } catch (e) {
@@ -155,7 +155,7 @@ async function loginUser(idKaryawan, password) {
         currentUser.qrCodeId = '';
       }
 
-      localStorage.setItem('bima_user', JSON.stringify(currentUser));
+      sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
       updateUIAuth();
       showToast(`Selamat datang, ${currentUser.nama} (${currentUser.kualifikasi})!`, 'success');
       loadCurrentCategory();
@@ -173,7 +173,7 @@ async function loginUser(idKaryawan, password) {
 
 // Logout User
 function logoutUser() {
-  localStorage.removeItem('bima_user');
+  sessionStorage.removeItem('bima_user');
   currentUser = null;
   //alert("Anda telah keluar.");
   window.location.reload();
