@@ -598,3 +598,25 @@ td {
 .picker-hint{display:block;font-size:12px;color:#8a5a00;min-height:16px;margin-top:4px}
 .picker-hint.ok{color:#178a4c}
 #reqWoNo:disabled{background-color:#EFECE6;cursor:not-allowed}
+
+/* === PEMBEBANAN BIAYA (Form Permintaan) === */
+.cost-alloc { grid-column: 1 / -1; border: 1px solid #f0d9cf; background: #fffaf7; border-radius: 12px; padding: 16px 18px 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; }
+.cost-alloc legend { font-size: 13px; font-weight: 700; color: #E04D23; padding: 0 6px; }
+.cost-step { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.cost-step[hidden] { display: none; }
+.cost-step-no { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #E04D23; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.cost-step-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cost-step-body > label { font-size: 12px; font-weight: 600; color: #4a5568; }
+.cost-step-body input, .cost-step-body select { padding: 10px 14px; font-size: 13px; border: 1px solid #cbd5e0; border-radius: 8px; outline: none; font-family: inherit; background: #fff; color: inherit; width: 100%; }
+.cost-step-body input:focus, .cost-step-body select:focus { border-color: #E04D23; box-shadow: 0 0 0 3px rgba(224, 77, 35, 0.12); }
+.cost-step-body input[readonly]:not(:disabled) { background: #f7f2ee; }
+.cost-choice { display: flex; flex-wrap: wrap; gap: 8px; }
+.cost-choice label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #1e1e1e; border: 1px solid #cbd5e0; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.cost-choice label:has(input:checked) { border-color: #E04D23; background: #fff0ea; }
+.cost-alloc .cost-choice input[type="radio"] { accent-color: #E04D23; margin: 0; width: 16px; height: 16px; flex: 0 0 16px; padding: 0; box-shadow: none; }
+.cost-choice label span { flex: 1; min-width: 0; text-align: left; }
+.cost-choice-stack { flex-direction: column; }
+.cost-summary { grid-column: 1 / -1; font-size: 13px; border-radius: 8px; padding: 10px 12px; background: #fff6e0; color: #8a5a00; border: 1px dashed #e8c77a; }
+.cost-summary.ok { background: #eaf7ef; color: #14532d; border: 1px solid #b7e1c6; }
+.cost-summary span { color: #4a5568; }
+@media (max-width: 768px) { .cost-alloc { grid-template-columns: 1fr; } }

@@ -260,12 +260,57 @@
 
         <!-- MAIN FORM (Header, isi sekali) -->
         <div class="form-grid" style="margin-bottom: 20px;">
-          <div class="input-group">
-            <label for="reqProjectID">Project ID</label>
-            <input type="text" id="reqProjectID" list="reqProjectOptions" placeholder="Cari kode / nama project..." autocomplete="off" required>
-            <datalist id="reqProjectOptions"></datalist>
-            <small id="reqProjectHint" class="picker-hint"></small>
-          </div>
+          <!-- PEMBEBANAN BIAYA: titik krusial laporan biaya (project, fungsi, divisi) -->
+          <fieldset class="cost-alloc">
+            <legend>💰 Pembebanan Biaya</legend>
+            <div class="cost-step">
+              <span class="cost-step-no">1</span>
+              <div class="cost-step-body">
+                <label>Biaya ini untuk apa?</label>
+                <div class="cost-choice" role="radiogroup" aria-label="Biaya untuk">
+                  <label><input type="radio" name="reqScope" value="CLIENT" checked><span>Project client</span></label>
+                  <label><input type="radio" name="reqScope" value="INTERNAL"><span>Non-Project (overhead divisi)</span></label>
+                </div>
+              </div>
+            </div>
+            <div class="cost-step">
+              <span class="cost-step-no">2</span>
+              <div class="cost-step-body">
+                <label for="reqProjectID">Project</label>
+                <input type="text" id="reqProjectID" list="reqProjectOptions" placeholder="Cari kode / nama project..." autocomplete="off" required>
+                <datalist id="reqProjectOptions"></datalist>
+                <small id="reqProjectHint" class="picker-hint"></small>
+              </div>
+            </div>
+            <div class="cost-step" id="reqCostTypeStep">
+              <span class="cost-step-no">3</span>
+              <div class="cost-step-body">
+                <label>Jenis biaya</label>
+                <div class="cost-choice cost-choice-stack" role="radiogroup" aria-label="Jenis biaya">
+                  <label><input type="radio" name="reqCostType" value="DIRECT" checked><span><b>Direct</b> — untuk pekerjaan WO tertentu (scope client)</span></label>
+                  <label><input type="radio" name="reqCostType" value="INDIRECT"><span><b>Indirect</b> — tim project / PMT, site office, mob-demob</span></label>
+                </div>
+              </div>
+            </div>
+            <div class="cost-step">
+              <span class="cost-step-no" id="reqWoStepNo">4</span>
+              <div class="cost-step-body">
+                <label for="reqWoNo">Work Order (WO)</label>
+                <input type="text" id="reqWoNo" list="reqWoOptions" placeholder="Pilih Project dulu..." autocomplete="off" required disabled>
+                <datalist id="reqWoOptions"></datalist>
+                <small id="reqWoHint" class="picker-hint"></small>
+              </div>
+            </div>
+            <div class="cost-step">
+              <span class="cost-step-no" id="reqFungsiStepNo">5</span>
+              <div class="cost-step-body">
+                <label for="reqFungsi">Fungsi / bidang biaya</label>
+                <select id="reqFungsi" required><option value="">Memuat daftar fungsi...</option></select>
+                <small class="picker-hint">Otomatis dari departemen kamu. Ganti kalau barangnya untuk fungsi lain (mis. staf HSE minta barang Quality).</small>
+              </div>
+            </div>
+            <div id="reqCostSummary" class="cost-summary" role="status" aria-live="polite">Lengkapi pilihan di atas.</div>
+          </fieldset>
           <div class="input-group">
             <label for="reqArea">Area (opsional)</label>
             <input type="text" id="reqArea" placeholder="Contoh: A, B, C -- kosongin kalau proyek gak dibagi area" maxlength="10">
@@ -273,12 +318,6 @@
           <div class="input-group">
             <label for="reqFotoReferensi">📎 Foto Referensi (opsional, bisa lebih dari 1)</label>
             <input type="file" id="reqFotoReferensi" accept="image/*" multiple>
-          </div>
-          <div class="input-group">
-            <label for="reqWoNo">Work Order No (WO_NO)</label>
-            <input type="text" id="reqWoNo" list="reqWoOptions" placeholder="Pilih Project dulu..." autocomplete="off" required disabled>
-            <datalist id="reqWoOptions"></datalist>
-            <small id="reqWoHint" class="picker-hint"></small>
           </div>
           <div class="input-group">
             <label for="reqPurpose">Purpose (Peruntukan)</label>

@@ -112,6 +112,17 @@ async function initAuthSession() {
     } catch (e) {
       console.warn('Auto-sync user access error:', e.message);
     }
+    // Sesi lama (sebelum fitur Pembebanan Biaya) belum nyimpan departemen -> ambil sekali.
+    if (!currentUser.departemen) {
+      try {
+        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('Departemen').eq('Id', currentUser.id).maybeSingle();
+        currentUser.departemen = karRow ? (karRow.Departemen || '') : '';
+        sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
+      } catch (e) {
+        console.warn('Gagal ambil departemen:', e.message);
+      }
+    }
+    applyReqDefaults();
   } else {
     currentUser = null;
     updateUIAuth();
@@ -160,6 +171,7 @@ async function loginUser(idKaryawan, password) {
 
       sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
       updateUIAuth();
+      applyReqDefaults();
       showToast(`Selamat datang, ${currentUser.nama} (${currentUser.kualifikasi})!`, 'success');
       loadCurrentCategory();
       return true;
@@ -824,6 +836,7 @@ async function handleSaveRequest(e) {
     Purpose: document.getElementById('reqPurpose').value,
     RefNo: refNo,
     ExpectedDate: document.getElementById('reqExpectedDate').value,
+    ...getReqAllocation(),
     Status: 'Pending',
     RequestBy: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.nama : 'dummy_user'
   };
@@ -920,23 +933,41 @@ async function loadRequestTableData() {
 }
 
 // 2. Mengirim Request ke Spreadsheet ResourcesTransaction
-// === PILIH PROJECT -> WO (Form Permintaan) ===
-// Project ID & WO No dipilih dari daftar Operational (RPC publik op_list_projects_public /
-// op_list_work_orders_public), bukan ketik bebas -- dulu WO_NO kebanyakan gak cocok ke WO asli.
-// Semua project boleh: project client (014, 015, ...) & Non-Project per divisi (901-905).
-// Nilai yang disimpan tetap sama formatnya: PROJECTID = kode project, WO_NO = nomor WO.
-let reqProjects = [], reqWorkOrders = [], reqPickersLoaded = false;
+// === PEMBEBANAN BIAYA (Form Permintaan) ===
+// Titik krusial laporan biaya: tiap request nyimpan snapshot Project + WO + Jenis Biaya + Fungsi
+// (kolom WoID/CostType/CostFunction, lihat migrasi_request_pembebanan_biaya.sql). Daftar project &
+// WO dari Operational (RPC publik op_list_projects_public / op_list_work_orders_public):
+//  - Project client (014, 015, ...): Direct -> WO scope (WO-001 dst) | Indirect -> WO-xxx-IND
+//  - Non-Project (901-905): WO departemen (WO-9xx-XXX), jenis biaya OVERHEAD
+// Format lama tetap diisi: PROJECTID = kode project, WO_NO = nomor WO (approval/monitoring/PDF).
+let reqProjects = [], reqWorkOrders = [], reqPickersLoaded = false, reqFungsiLoaded = false;
+// Default lingkup/jenis biaya dari departemen pemohon (pemohon tetap bisa ganti).
+const REQ_INDIRECT_DEPTS = ['HSE', 'QAC', 'Project Control', 'Project', 'Direct Project (Umum)'];
+const REQ_DIRECT_DEPTS = ['Civil Construction', 'Mechanical Construction'];
+const REQ_KIND_LABEL = { DIRECT: 'Direct', INDIRECT: 'Indirect', OVERHEAD: 'Overhead Non-Project' };
 function reqEsc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function reqUserDept() { return (typeof currentUser !== 'undefined' && currentUser && currentUser.departemen) || ''; }
+function reqScope() { return document.querySelector('input[name="reqScope"]:checked')?.value || 'CLIENT'; }
+function reqCostType() {
+  if (reqScope() === 'INTERNAL') return 'OVERHEAD';
+  return document.querySelector('input[name="reqCostType"]:checked')?.value || 'DIRECT';
+}
+function setReqRadio(name, value) { const el = document.querySelector(`input[name="${name}"][value="${value}"]`); if (el) el.checked = true; }
+
 async function initRequestPickers() {
   const projInput = document.getElementById('reqProjectID');
   const woInput = document.getElementById('reqWoNo');
   if (!projInput || !woInput) return;
+  document.querySelectorAll('input[name="reqScope"]').forEach(r => r.addEventListener('change', () => { document.getElementById('reqProjectID').value = ''; onReqScopeChange(); }));
+  document.querySelectorAll('input[name="reqCostType"]').forEach(r => r.addEventListener('change', () => { document.getElementById('reqWoNo').value = ''; onReqProjectChange(); }));
   projInput.addEventListener('input', onReqProjectChange);
   projInput.addEventListener('change', onReqProjectChange);
   woInput.addEventListener('input', onReqWoChange);
   woInput.addEventListener('change', onReqWoChange);
+  document.getElementById('reqFungsi').addEventListener('change', renderReqSummary);
   projInput.addEventListener('focus', () => { if (!reqPickersLoaded) loadRequestPickers(); });
-  await loadRequestPickers();
+  await Promise.all([loadRequestPickers(), loadReqFungsiOptions()]);
+  applyReqDefaults();
 }
 async function loadRequestPickers() {
   try {
@@ -947,60 +978,131 @@ async function loadRequestPickers() {
     if (p.error) throw p.error;
     if (w.error) throw w.error;
     // Project CLOSED & WO selain APPROVED (draft/closed/cancelled) gak bisa dipakai request baru.
-    reqProjects = (p.data || []).filter(x => x.status !== 'CLOSED')
-      .sort((a, b) => (a.projectType === 'INTERNAL') - (b.projectType === 'INTERNAL') || String(a.code).localeCompare(String(b.code)));
+    reqProjects = (p.data || []).filter(x => x.status !== 'CLOSED').sort((a, b) => String(a.code).localeCompare(String(b.code)));
     reqWorkOrders = (w.data || []).filter(x => x.status === 'APPROVED');
     reqPickersLoaded = true;
-    document.getElementById('reqProjectOptions').innerHTML = reqProjects.map(x =>
-      `<option value="${reqEsc(x.code)}">${reqEsc(x.name)}</option>`).join('');
-    onReqProjectChange();
+    onReqScopeChange();
   } catch (err) {
     console.warn('Gagal memuat daftar Project/WO:', err.message);
     document.getElementById('reqProjectHint').textContent = '⚠ Daftar project gagal dimuat, coba refresh halaman.';
   }
 }
+// Daftar fungsi = daftar Departemen karyawan aktif (HSE, QAC, Procurement, ...).
+async function loadReqFungsiOptions() {
+  const sel = document.getElementById('reqFungsi');
+  try {
+    const { data, error } = await supabaseClient.from('karyawanTbl').select('Departemen').eq('IsActive', true);
+    if (error) throw error;
+    const list = [...new Set((data || []).map(r => String(r.Departemen || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    sel.innerHTML = '<option value="">Pilih fungsi...</option>' + list.map(d => `<option value="${reqEsc(d)}">${reqEsc(d)}</option>`).join('');
+    reqFungsiLoaded = true;
+  } catch (err) {
+    console.warn('Gagal memuat daftar fungsi:', err.message);
+    sel.innerHTML = '<option value="">⚠ Gagal memuat, refresh halaman</option>';
+  }
+}
+// Isi default sesuai departemen pemohon. Dipanggil saat form siap, sesudah login, & sesudah submit.
+function applyReqDefaults() {
+  if (!reqPickersLoaded) return;
+  const dept = reqUserDept();
+  const deptWo = dept ? reqWorkOrders.find(w => w.woKind === 'OVERHEAD' && w.departemen === dept) : null;
+  document.getElementById('reqProjectID').value = '';
+  document.getElementById('reqWoNo').value = '';
+  if (REQ_INDIRECT_DEPTS.includes(dept)) { setReqRadio('reqScope', 'CLIENT'); setReqRadio('reqCostType', 'INDIRECT'); }
+  else if (REQ_DIRECT_DEPTS.includes(dept) || !deptWo) { setReqRadio('reqScope', 'CLIENT'); setReqRadio('reqCostType', 'DIRECT'); }
+  else {
+    setReqRadio('reqScope', 'INTERNAL');
+    document.getElementById('reqProjectID').value = deptWo.projectCode;
+  }
+  const fungsi = document.getElementById('reqFungsi');
+  if (dept && [...fungsi.options].some(o => o.value === dept)) fungsi.value = dept;
+  onReqScopeChange();
+}
+function scopeProjects() { const internal = reqScope() === 'INTERNAL'; return reqProjects.filter(x => (x.projectType === 'INTERNAL') === internal); }
 function findReqProject() {
   const v = document.getElementById('reqProjectID').value.trim().toLowerCase();
-  return reqProjects.find(x => String(x.code).toLowerCase() === v) || null;
+  return scopeProjects().find(x => String(x.code).toLowerCase() === v) || null;
 }
-function reqWosOf(project) { return project ? reqWorkOrders.filter(w => w.projectId === project.id) : []; }
+// WO milik project terpilih, cuma yang jenisnya sesuai jenis biaya.
+function reqWosOf(project) {
+  const kind = reqCostType();
+  return project ? reqWorkOrders.filter(w => w.projectId === project.id && (w.woKind || 'DIRECT') === kind) : [];
+}
+function onReqScopeChange() {
+  const internal = reqScope() === 'INTERNAL';
+  document.getElementById('reqCostTypeStep').hidden = internal;
+  document.getElementById('reqWoStepNo').textContent = internal ? '3' : '4';
+  document.getElementById('reqFungsiStepNo').textContent = internal ? '4' : '5';
+  document.getElementById('reqProjectOptions').innerHTML = scopeProjects().map(x =>
+    `<option value="${reqEsc(x.code)}">${reqEsc(x.name)}</option>`).join('');
+  document.getElementById('reqProjectID').placeholder = internal ? 'Cari divisi: 901 Direksi ... 905 Operation' : 'Cari kode / nama project client...';
+  onReqProjectChange();
+}
 function onReqProjectChange() {
   const project = findReqProject();
+  const kind = reqCostType();
   const woInput = document.getElementById('reqWoNo');
   const hint = document.getElementById('reqProjectHint');
   const wos = reqWosOf(project);
-  hint.textContent = project ? `✓ ${project.name}${project.projectType === 'INTERNAL' ? ' · Divisi ' + (project.divisi || '-') : ''}` : (document.getElementById('reqProjectID').value.trim() ? 'Pilih project dari daftar.' : '');
+  const typed = document.getElementById('reqProjectID').value.trim();
+  hint.textContent = project ? `✓ ${project.name}${project.projectType === 'INTERNAL' ? ' · Divisi ' + (project.divisi || '-') : ''}`
+    : (typed ? (reqScope() === 'INTERNAL' ? 'Pilih divisi Non-Project dari daftar (901-905).' : 'Pilih project client dari daftar.') : '');
   hint.className = 'picker-hint' + (project ? ' ok' : '');
   document.getElementById('reqWoOptions').innerHTML = wos.map(w =>
     `<option value="${reqEsc(w.number)}">${reqEsc(w.departemen || w.title)}</option>`).join('');
-  woInput.disabled = !project;
-  woInput.placeholder = !project ? 'Pilih Project dulu...' : (wos.length ? `Cari No. / judul WO (${wos.length} WO)...` : 'Project ini belum punya WO aktif');
-  // WO yang udah keisi tapi bukan milik project ini -> kosongkan.
+  // WO yang udah keisi tapi bukan milik project/jenis ini -> kosongkan.
   if (woInput.value && !wos.some(w => w.number === woInput.value.trim())) woInput.value = '';
-  // Non-Project: default ke WO departemen pemohon; project dengan 1 WO: langsung pilih.
+  woInput.disabled = !project;
+  // Indirect cuma ada 1 WO per project (WO-xxx-IND) -> diisi otomatis & dikunci.
+  woInput.readOnly = kind === 'INDIRECT';
+  if (!project) woInput.placeholder = 'Pilih Project dulu...';
+  else if (!wos.length) woInput.placeholder = kind === 'INDIRECT' ? 'Project ini belum punya WO Indirect' : 'Belum ada WO aktif untuk pilihan ini';
+  else woInput.placeholder = `Cari No. / judul WO (${wos.length} WO)...`;
   if (project && !woInput.value) {
-    const dept = (typeof currentUser !== 'undefined' && currentUser && currentUser.departemen) || '';
+    const dept = reqUserDept();
     const byDept = dept ? wos.find(w => w.departemen && w.departemen === dept) : null;
     if (byDept) woInput.value = byDept.number;
     else if (wos.length === 1) woInput.value = wos[0].number;
   }
   onReqWoChange();
 }
+function findReqWo() { return reqWosOf(findReqProject()).find(w => w.number === document.getElementById('reqWoNo').value.trim()) || null; }
 function onReqWoChange() {
-  const wo = reqWosOf(findReqProject()).find(w => w.number === document.getElementById('reqWoNo').value.trim());
+  const wo = findReqWo();
   const hint = document.getElementById('reqWoHint');
-  hint.textContent = wo ? `✓ ${wo.title}` : (document.getElementById('reqWoNo').value.trim() ? 'Pilih WO dari daftar project ini.' : '');
+  hint.textContent = wo ? `✓ ${wo.title}` : (document.getElementById('reqWoNo').value.trim() ? 'Pilih WO dari daftar.' : '');
   hint.className = 'picker-hint' + (wo ? ' ok' : '');
+  renderReqSummary();
 }
-// Dipanggil sebelum kirim: project & WO wajib dari daftar, dan WO harus milik project itu.
+// Ringkasan pembebanan -- selalu kelihatan sebelum Submit biar pemohon sadar biayanya ke mana.
+function renderReqSummary() {
+  const box = document.getElementById('reqCostSummary');
+  if (!box) return;
+  const project = findReqProject(), wo = findReqWo(), fungsi = document.getElementById('reqFungsi').value, kind = reqCostType();
+  const missing = [!project && 'project', !wo && 'WO', !fungsi && 'fungsi'].filter(Boolean);
+  if (missing.length) {
+    box.className = 'cost-summary';
+    box.textContent = 'Belum lengkap: pilih ' + missing.join(', ') + '.';
+    return;
+  }
+  box.className = 'cost-summary ok';
+  box.innerHTML = `<span>Biaya dibebankan ke:</span> <b>${reqEsc(project.code)} — ${reqEsc(project.name)}</b> · <b>${reqEsc(wo.number)}</b> (${REQ_KIND_LABEL[kind]}) · Fungsi <b>${reqEsc(fungsi)}</b>`;
+}
+// Dipanggil sebelum kirim: project, WO (sesuai jenis & milik project) & fungsi wajib dari daftar.
 function validateRequestProjectWo() {
   if (!reqPickersLoaded) return 'Daftar project/WO belum termuat. Cek koneksi lalu refresh halaman.';
   const project = findReqProject();
-  if (!project) return 'Project ID harus dipilih dari daftar.';
+  if (!project) return reqScope() === 'INTERNAL' ? 'Pilih divisi Non-Project (901-905) dari daftar.' : 'Project harus dipilih dari daftar project client.';
   const woNo = document.getElementById('reqWoNo').value.trim();
-  if (!reqWosOf(project).some(w => w.number === woNo)) return `WO "${woNo || '-'}" bukan WO aktif di project ${project.code}. Pilih WO dari daftar.`;
+  if (!findReqWo()) return `WO "${woNo || '-'}" bukan WO ${REQ_KIND_LABEL[reqCostType()]} aktif di project ${project.code}. Pilih WO dari daftar.`;
+  if (!document.getElementById('reqFungsi').value) return 'Pilih Fungsi / bidang biaya.';
   document.getElementById('reqProjectID').value = project.code;
   return null;
+}
+// Snapshot pembebanan yang ikut disimpan di tiap baris request.
+function getReqAllocation() {
+  const wo = findReqWo();
+  return { WoID: wo ? wo.id : null, CostType: reqCostType(), CostFunction: document.getElementById('reqFungsi').value || null };
 }
 
 async function handleBatchSubmitRequest(e) {
@@ -1055,6 +1157,8 @@ async function handleBatchSubmitRequest(e) {
     requestBy: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.nama : 'System'
   };
 
+  // Snapshot pembebanan biaya (WO id, jenis biaya, fungsi) -- sama untuk semua baris item.
+  const allocation = getReqAllocation();
   const itemsPayload = [];
   rows.forEach(tr => {
     const durationVal = tr.querySelector('.row-duration')?.value;
@@ -1074,6 +1178,7 @@ async function handleBatchSubmitRequest(e) {
       DurUnit: tr.querySelector('.row-durunit')?.value || '',
       Purpose: headerData.purpose,
       ExpectedDate: headerData.expectedDate,
+      ...allocation,
       Status: 'Menunggu Review',
       RequestBy: headerData.requestBy
     });
@@ -1132,7 +1237,7 @@ async function handleBatchSubmitRequest(e) {
     document.getElementById('reqPurpose').value = '';
     document.getElementById('reqExpectedDate').value = '';
     document.getElementById('reqRefNo').value = '';
-    onReqProjectChange();
+    applyReqDefaults();
 
     const tbody = document.getElementById('datasheetBody');
     if (tbody) tbody.innerHTML = '';
