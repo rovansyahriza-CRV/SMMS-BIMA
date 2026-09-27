@@ -594,4 +594,7 @@ td {
 
 .toast.hide {
   animation: toastOut 0.3s ease forwards;
-}
+}/* Hint di bawah pilihan Project / WO (Form Permintaan) */
+.picker-hint{display:block;font-size:12px;color:#8a5a00;min-height:16px;margin-top:4px}
+.picker-hint.ok{color:#178a4c}
+#reqWoNo:disabled{background-color:#EFECE6;cursor:not-allowed}

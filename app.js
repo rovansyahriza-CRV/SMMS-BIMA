@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTableFilters();
     loadCurrentCategory();
     loadRequestTableData();
+    initRequestPickers();
 
     // === LOGIKA AUTO SHOW/HIDE DURATION ===
     const reqItemGroup = document.getElementById('reqItemGroup');
@@ -148,8 +149,10 @@ async function loginUser(idKaryawan, password) {
       // report PDF Request. Query langsung ke tabel (bukan lewat verify_login) biar gak perlu
       // ubah RPC login yang udah jalan.
       try {
-        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('QrCodeId').eq('Id', userRow.id).maybeSingle();
+        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('QrCodeId, Departemen').eq('Id', userRow.id).maybeSingle();
         currentUser.qrCodeId = karRow ? (karRow.QrCodeId || '') : '';
+        // Departemen dipakai buat default WO Non-Project (WO-9xx-XXX) di Form Permintaan.
+        currentUser.departemen = karRow ? (karRow.Departemen || '') : '';
       } catch (qrErr) {
         console.warn('Gagal ambil QrCodeId:', qrErr.message);
         currentUser.qrCodeId = '';
@@ -800,6 +803,8 @@ document.getElementById('reqItemSpec')?.addEventListener('input', function(e) {
 // Handler Simpan Request Material
 async function handleSaveRequest(e) {
   e.preventDefault();
+  const pickerError = validateRequestProjectWo();
+  if (pickerError) { alert(pickerError); return; }
   const btn = document.getElementById('btnSubmitRequest');
   btn.textContent = 'Sending Request...';
   btn.disabled = true;
@@ -915,6 +920,89 @@ async function loadRequestTableData() {
 }
 
 // 2. Mengirim Request ke Spreadsheet ResourcesTransaction
+// === PILIH PROJECT -> WO (Form Permintaan) ===
+// Project ID & WO No dipilih dari daftar Operational (RPC publik op_list_projects_public /
+// op_list_work_orders_public), bukan ketik bebas -- dulu WO_NO kebanyakan gak cocok ke WO asli.
+// Semua project boleh: project client (014, 015, ...) & Non-Project per divisi (901-905).
+// Nilai yang disimpan tetap sama formatnya: PROJECTID = kode project, WO_NO = nomor WO.
+let reqProjects = [], reqWorkOrders = [], reqPickersLoaded = false;
+function reqEsc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+async function initRequestPickers() {
+  const projInput = document.getElementById('reqProjectID');
+  const woInput = document.getElementById('reqWoNo');
+  if (!projInput || !woInput) return;
+  projInput.addEventListener('input', onReqProjectChange);
+  projInput.addEventListener('change', onReqProjectChange);
+  woInput.addEventListener('input', onReqWoChange);
+  woInput.addEventListener('change', onReqWoChange);
+  projInput.addEventListener('focus', () => { if (!reqPickersLoaded) loadRequestPickers(); });
+  await loadRequestPickers();
+}
+async function loadRequestPickers() {
+  try {
+    const [p, w] = await Promise.all([
+      supabaseClient.rpc('op_list_projects_public'),
+      supabaseClient.rpc('op_list_work_orders_public')
+    ]);
+    if (p.error) throw p.error;
+    if (w.error) throw w.error;
+    // Project CLOSED & WO selain APPROVED (draft/closed/cancelled) gak bisa dipakai request baru.
+    reqProjects = (p.data || []).filter(x => x.status !== 'CLOSED')
+      .sort((a, b) => (a.projectType === 'INTERNAL') - (b.projectType === 'INTERNAL') || String(a.code).localeCompare(String(b.code)));
+    reqWorkOrders = (w.data || []).filter(x => x.status === 'APPROVED');
+    reqPickersLoaded = true;
+    document.getElementById('reqProjectOptions').innerHTML = reqProjects.map(x =>
+      `<option value="${reqEsc(x.code)}">${reqEsc(x.name)}</option>`).join('');
+    onReqProjectChange();
+  } catch (err) {
+    console.warn('Gagal memuat daftar Project/WO:', err.message);
+    document.getElementById('reqProjectHint').textContent = '⚠ Daftar project gagal dimuat, coba refresh halaman.';
+  }
+}
+function findReqProject() {
+  const v = document.getElementById('reqProjectID').value.trim().toLowerCase();
+  return reqProjects.find(x => String(x.code).toLowerCase() === v) || null;
+}
+function reqWosOf(project) { return project ? reqWorkOrders.filter(w => w.projectId === project.id) : []; }
+function onReqProjectChange() {
+  const project = findReqProject();
+  const woInput = document.getElementById('reqWoNo');
+  const hint = document.getElementById('reqProjectHint');
+  const wos = reqWosOf(project);
+  hint.textContent = project ? `✓ ${project.name}${project.projectType === 'INTERNAL' ? ' · Divisi ' + (project.divisi || '-') : ''}` : (document.getElementById('reqProjectID').value.trim() ? 'Pilih project dari daftar.' : '');
+  hint.className = 'picker-hint' + (project ? ' ok' : '');
+  document.getElementById('reqWoOptions').innerHTML = wos.map(w =>
+    `<option value="${reqEsc(w.number)}">${reqEsc(w.departemen || w.title)}</option>`).join('');
+  woInput.disabled = !project;
+  woInput.placeholder = !project ? 'Pilih Project dulu...' : (wos.length ? `Cari No. / judul WO (${wos.length} WO)...` : 'Project ini belum punya WO aktif');
+  // WO yang udah keisi tapi bukan milik project ini -> kosongkan.
+  if (woInput.value && !wos.some(w => w.number === woInput.value.trim())) woInput.value = '';
+  // Non-Project: default ke WO departemen pemohon; project dengan 1 WO: langsung pilih.
+  if (project && !woInput.value) {
+    const dept = (typeof currentUser !== 'undefined' && currentUser && currentUser.departemen) || '';
+    const byDept = dept ? wos.find(w => w.departemen && w.departemen === dept) : null;
+    if (byDept) woInput.value = byDept.number;
+    else if (wos.length === 1) woInput.value = wos[0].number;
+  }
+  onReqWoChange();
+}
+function onReqWoChange() {
+  const wo = reqWosOf(findReqProject()).find(w => w.number === document.getElementById('reqWoNo').value.trim());
+  const hint = document.getElementById('reqWoHint');
+  hint.textContent = wo ? `✓ ${wo.title}` : (document.getElementById('reqWoNo').value.trim() ? 'Pilih WO dari daftar project ini.' : '');
+  hint.className = 'picker-hint' + (wo ? ' ok' : '');
+}
+// Dipanggil sebelum kirim: project & WO wajib dari daftar, dan WO harus milik project itu.
+function validateRequestProjectWo() {
+  if (!reqPickersLoaded) return 'Daftar project/WO belum termuat. Cek koneksi lalu refresh halaman.';
+  const project = findReqProject();
+  if (!project) return 'Project ID harus dipilih dari daftar.';
+  const woNo = document.getElementById('reqWoNo').value.trim();
+  if (!reqWosOf(project).some(w => w.number === woNo)) return `WO "${woNo || '-'}" bukan WO aktif di project ${project.code}. Pilih WO dari daftar.`;
+  document.getElementById('reqProjectID').value = project.code;
+  return null;
+}
+
 async function handleBatchSubmitRequest(e) {
   if (e) e.preventDefault();
 
@@ -923,6 +1011,8 @@ async function handleBatchSubmitRequest(e) {
     alert("Tambahkan minimal 1 item barang!");
     return;
   }
+  const pickerError = validateRequestProjectWo();
+  if (pickerError) { alert(pickerError); return; }
 
   const btn = document.getElementById('btnSubmitBatchRequest');
   if (btn) {
@@ -1042,6 +1132,7 @@ async function handleBatchSubmitRequest(e) {
     document.getElementById('reqPurpose').value = '';
     document.getElementById('reqExpectedDate').value = '';
     document.getElementById('reqRefNo').value = '';
+    onReqProjectChange();
 
     const tbody = document.getElementById('datasheetBody');
     if (tbody) tbody.innerHTML = '';

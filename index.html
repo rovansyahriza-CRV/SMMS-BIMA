@@ -262,7 +262,9 @@
         <div class="form-grid" style="margin-bottom: 20px;">
           <div class="input-group">
             <label for="reqProjectID">Project ID</label>
-            <input type="text" id="reqProjectID" placeholder="Contoh: 101" required>
+            <input type="text" id="reqProjectID" list="reqProjectOptions" placeholder="Cari kode / nama project..." autocomplete="off" required>
+            <datalist id="reqProjectOptions"></datalist>
+            <small id="reqProjectHint" class="picker-hint"></small>
           </div>
           <div class="input-group">
             <label for="reqArea">Area (opsional)</label>
@@ -274,7 +276,9 @@
           </div>
           <div class="input-group">
             <label for="reqWoNo">Work Order No (WO_NO)</label>
-            <input type="text" id="reqWoNo" placeholder="Contoh: WO-2026-001" required>
+            <input type="text" id="reqWoNo" list="reqWoOptions" placeholder="Pilih Project dulu..." autocomplete="off" required disabled>
+            <datalist id="reqWoOptions"></datalist>
+            <small id="reqWoHint" class="picker-hint"></small>
           </div>
           <div class="input-group">
             <label for="reqPurpose">Purpose (Peruntukan)</label>
