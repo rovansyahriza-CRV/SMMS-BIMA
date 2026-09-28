@@ -89,7 +89,37 @@
 </style>
 </head>
 <body>
-<div class="page">
+<!-- Login: halaman ini cuma buat akun dengan token "Monitoring Barang" / "Monitoring Resources"
+     (PIC atau Author, dicocokkan persis) atau ALL. Konten di bawah disembunyikan sampai lolos. -->
+<div class="page" id="mbLoginPage">
+  <div class="brand-row">
+    <div class="brand-mark">
+      <div class="crest">SB</div>
+      <div>
+        <div class="eyebrow">SMMS · BIMA</div>
+        <h1 class="title">Monitoring Barang</h1>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="max-width:420px;">
+    <p class="card-label">Login</p>
+    <form id="mbLoginForm" autocomplete="off">
+      <label for="mbLoginSearch" style="display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;">Nama karyawan</label>
+      <div style="position:relative;">
+        <input type="text" id="mbLoginSearch" placeholder="Ketik minimal 2 huruf nama" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;">
+        <input type="hidden" id="mbLoginId">
+        <div id="mbLoginSuggest" style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:2px;background:#fff;border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+      </div>
+      <label for="mbLoginPassword" style="display:block;font-size:12.5px;font-weight:600;margin:12px 0 5px;">Password</label>
+      <input type="password" id="mbLoginPassword" autocomplete="current-password" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font:inherit;">
+      <p id="mbLoginError" role="alert" style="color:#B42318;font-size:12.5px;min-height:18px;margin:8px 0;"></p>
+      <button type="submit" id="mbLoginBtn" class="btn-secondary" style="width:100%;">Masuk</button>
+      <p class="hint" style="margin-top:10px;">Butuh akses <b>Monitoring Barang</b> di PIC/Author akun SMMS. Hubungi admin kalau belum punya.</p>
+    </form>
+  </div>
+</div>
+
+<div class="page" id="mbContent" hidden>
 
   <div class="brand-row">
     <div class="brand-mark">
@@ -101,6 +131,8 @@
     </div>
     <div style="text-align:right;">
       <button id="btnRefresh" class="btn-secondary">🔄 Refresh</button>
+      <button id="mbLogout" class="btn-secondary" type="button">Keluar</button>
+      <div id="mbWho" style="font-size:11.5px;color:var(--text-muted);margin-top:5px;"></div>
       <div id="lastRefreshed"></div>
     </div>
   </div>
@@ -159,7 +191,7 @@
     <div id="returHistoryListWrap"></div>
   </div>
 
-  <footer class="hint">Klik salah satu baris untuk lihat rincian. Halaman ini bisa diakses siapa saja, tanpa login.</footer>
+  <footer class="hint">Klik salah satu baris untuk lihat rincian.</footer>
 </div>
 
 <script>
@@ -756,9 +788,97 @@ function renderStockReport() {
   });
 }
 
-// ============ Load langsung begitu halaman dibuka -- tanpa login/scan, publik ============
-loadProjectOptions();
-loadMonitoring();
+// ============ Login: akun SMMS dengan token "Monitoring Barang"/"Monitoring Resources" atau ALL ============
+// Token dicocokkan UTUH per koma (PIC & Author). Sesi disimpan di sessionStorage tab ini; kalau di tab
+// yang sama udah login SMMS portal (bima_user), sesi itu dipakai tanpa login ulang.
+const MB_SESSION_KEY = 'bima_monitoring_user';
+const MB_TOKENS = ['MONITORING BARANG', 'MONITORING RESOURCES', 'ALL', '*'];
+const mbTokens = raw => String(raw || '').toUpperCase().split(',').map(t => t.trim()).filter(Boolean);
+const mbAllowed = u => !!u && [...mbTokens(u.PIC ?? u.pic), ...mbTokens(u.Author ?? u.author)].some(t => MB_TOKENS.includes(t));
+
+let mbStarted = false;
+function mbShowContent(user) {
+  document.getElementById('mbLoginPage').hidden = true;
+  document.getElementById('mbContent').hidden = false;
+  document.getElementById('mbWho').textContent = 'Masuk: ' + (user.nama || '-');
+  if (!mbStarted) { mbStarted = true; loadProjectOptions(); loadMonitoring(); }
+}
+function mbShowLogin(message) {
+  document.getElementById('mbContent').hidden = true;
+  document.getElementById('mbLoginPage').hidden = false;
+  document.getElementById('mbLoginError').textContent = message || '';
+}
+// Sesi tersimpan: baca ulang PIC/Author dari database biar pencabutan akses langsung berlaku.
+async function mbResumeSession() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(MB_SESSION_KEY) || sessionStorage.getItem('bima_user') || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.id) return mbShowLogin('');
+  try {
+    const { data } = await supabaseClient.from('paswordTbl').select('Author, pic, PIC').eq('Id', saved.id).maybeSingle();
+    if (data) { saved.Author = data.Author || ''; saved.PIC = data.PIC || data.pic || ''; }
+  } catch (e) { /* offline: pakai data sesi */ }
+  if (mbAllowed(saved)) mbShowContent(saved);
+  else { sessionStorage.removeItem(MB_SESSION_KEY); mbShowLogin('Akun ini belum punya akses Monitoring Barang.'); }
+}
+
+(function setupMbLoginSearch() {
+  const searchEl = document.getElementById('mbLoginSearch'), idEl = document.getElementById('mbLoginId'), box = document.getElementById('mbLoginSuggest');
+  let timer = null, version = 0;
+  const close = () => { box.style.display = 'none'; box.innerHTML = ''; };
+  searchEl.addEventListener('input', () => {
+    idEl.value = '';
+    clearTimeout(timer);
+    const q = searchEl.value.trim(), v = ++version;
+    if (q.length < 2) return close();
+    timer = setTimeout(async () => {
+      try {
+        const { data, error } = await supabaseClient.rpc('search_active_karyawan', { p_query: q });
+        if (error) throw error;
+        if (v !== version) return;
+        box.innerHTML = '';
+        (data || []).slice(0, 8).forEach(u => {
+          const item = document.createElement('div');
+          item.textContent = `${String(u.nama).trim()} (ID: ${u.id})`;
+          item.style.cssText = 'padding:9px 12px;cursor:pointer;font-size:13.5px;border-bottom:1px solid #f0f0f0;';
+          item.addEventListener('mousedown', e => { e.preventDefault(); idEl.value = String(u.id); searchEl.value = item.textContent; close(); document.getElementById('mbLoginPassword').focus(); });
+          box.appendChild(item);
+        });
+        if (!box.children.length) box.innerHTML = '<div style="padding:9px 12px;color:#888;font-size:13px;">Nama tidak ditemukan.</div>';
+        box.style.display = 'block';
+      } catch (e) { box.innerHTML = '<div style="padding:9px 12px;color:#888;font-size:13px;">Pencarian gagal, coba lagi.</div>'; box.style.display = 'block'; }
+    }, 300);
+  });
+  searchEl.addEventListener('blur', () => setTimeout(close, 150));
+})();
+
+document.getElementById('mbLoginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('mbLoginBtn'), errEl = document.getElementById('mbLoginError');
+  const id = document.getElementById('mbLoginId').value, pw = document.getElementById('mbLoginPassword').value;
+  errEl.textContent = '';
+  if (!/^\d+$/.test(id)) { errEl.textContent = 'Pilih nama karyawan dari daftar.'; return; }
+  if (!pw) { errEl.textContent = 'Isi password.'; return; }
+  btn.disabled = true; btn.textContent = 'Memeriksa...';
+  try {
+    const { data, error } = await supabaseClient.rpc('verify_login', { p_id: id, p_password: pw });
+    if (error) throw error;
+    const row = data && data[0];
+    if (!row) { errEl.textContent = 'Nama atau password salah.'; return; }
+    const user = { id: row.id, nama: row.nama, kualifikasi: row.kualifikasi, Author: row.author || '', PIC: row.pic || '' };
+    if (!mbAllowed(user)) { errEl.textContent = 'Akun ini belum punya akses Monitoring Barang. Hubungi admin.'; return; }
+    sessionStorage.setItem(MB_SESSION_KEY, JSON.stringify(user));
+    document.getElementById('mbLoginPassword').value = '';
+    mbShowContent(user);
+  } catch (err) {
+    errEl.textContent = 'Login gagal: ' + err.message;
+  } finally { btn.disabled = false; btn.textContent = 'Masuk'; }
+});
+document.getElementById('mbLogout').addEventListener('click', () => {
+  sessionStorage.removeItem(MB_SESSION_KEY);
+  mbShowLogin('Sudah keluar.');
+});
+
+mbResumeSession();
 </script>
 </body>
 </html>

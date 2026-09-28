@@ -1311,7 +1311,9 @@ function applyMenuAccess() {
   const matchPic = (...keys) => isSuperAdmin || keys.some(k => picTokens.includes(k.toUpperCase()));
   const matchAuthor = (...keys) => isSuperAdmin || keys.some(k => {
     const ku = k.toUpperCase();
-    return authorTokens.some(a => a === ku || a.startsWith(ku + '-') || a.startsWith(ku + ' ') || a.includes(ku));
+    // Cocok kalau kode utuh ("AR"), kode-project ("AR-014") atau bentuk panjang ("APPROVAL REQUEST 014").
+    // Sengaja TANPA includes(): dulu "Penerima bARang"/"Monitoring BARang" ikut dianggap punya "AR".
+    return authorTokens.some(a => a === ku || a.startsWith(ku + '-') || a.startsWith(ku + ' '));
   });
 
   // 1. Master Resources (Inisial: MR / Input Master Resources)
