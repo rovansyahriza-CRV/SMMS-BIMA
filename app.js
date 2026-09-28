@@ -112,11 +112,12 @@ async function initAuthSession() {
     } catch (e) {
       console.warn('Auto-sync user access error:', e.message);
     }
-    // Sesi lama (sebelum fitur Pembebanan Biaya) belum nyimpan departemen -> ambil sekali.
-    if (!currentUser.departemen) {
+    // Sesi lama (sebelum fitur Pembebanan Biaya) belum nyimpan departemen / penugasan project -> ambil sekali.
+    if (!currentUser.departemen || currentUser.projectCode === undefined) {
       try {
-        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('Departemen').eq('Id', currentUser.id).maybeSingle();
+        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('Departemen, Type').eq('Id', currentUser.id).maybeSingle();
         currentUser.departemen = karRow ? (karRow.Departemen || '') : '';
+        currentUser.projectCode = karRow ? String(karRow.Type || '').trim() : '';
         sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
       } catch (e) {
         console.warn('Gagal ambil departemen:', e.message);
@@ -160,10 +161,12 @@ async function loginUser(idKaryawan, password) {
       // report PDF Request. Query langsung ke tabel (bukan lewat verify_login) biar gak perlu
       // ubah RPC login yang udah jalan.
       try {
-        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('QrCodeId, Departemen').eq('Id', userRow.id).maybeSingle();
+        const { data: karRow } = await supabaseClient.from('karyawanTbl').select('QrCodeId, Departemen, Type').eq('Id', userRow.id).maybeSingle();
         currentUser.qrCodeId = karRow ? (karRow.QrCodeId || '') : '';
         // Departemen dipakai buat default WO Non-Project (WO-9xx-XXX) di Form Permintaan.
         currentUser.departemen = karRow ? (karRow.Departemen || '') : '';
+        // Penugasan project karyawan (karyawanTbl.Type: 014, 015, 901-905) -> default Project di Form Permintaan.
+        currentUser.projectCode = karRow ? String(karRow.Type || '').trim() : '';
       } catch (qrErr) {
         console.warn('Gagal ambil QrCodeId:', qrErr.message);
         currentUser.qrCodeId = '';
@@ -1001,14 +1004,23 @@ async function loadReqFungsiOptions() {
     sel.innerHTML = '<option value="">⚠ Gagal memuat, refresh halaman</option>';
   }
 }
-// Isi default sesuai departemen pemohon. Dipanggil saat form siap, sesudah login, & sesudah submit.
+// Isi default: project = penugasan karyawan (karyawanTbl.Type). Jenis biaya project client ikut
+// departemen (Civil/Mechanical Construction -> Direct, lainnya di site -> Indirect). Kalau penugasan
+// belum ada / gak dikenal, fallback ke departemen. Dipanggil saat form siap, sesudah login & submit.
+function reqUserProject() { return (typeof currentUser !== 'undefined' && currentUser && currentUser.projectCode) || ''; }
 function applyReqDefaults() {
   if (!reqPickersLoaded) return;
   const dept = reqUserDept();
+  const home = reqProjects.find(p => String(p.code).trim() === reqUserProject());
   const deptWo = dept ? reqWorkOrders.find(w => w.woKind === 'OVERHEAD' && w.departemen === dept) : null;
   document.getElementById('reqProjectID').value = '';
   document.getElementById('reqWoNo').value = '';
-  if (REQ_INDIRECT_DEPTS.includes(dept)) { setReqRadio('reqScope', 'CLIENT'); setReqRadio('reqCostType', 'INDIRECT'); }
+  if (home) {
+    setReqRadio('reqScope', home.projectType === 'INTERNAL' ? 'INTERNAL' : 'CLIENT');
+    if (home.projectType !== 'INTERNAL') setReqRadio('reqCostType', REQ_DIRECT_DEPTS.includes(dept) ? 'DIRECT' : 'INDIRECT');
+    document.getElementById('reqProjectID').value = home.code;
+  }
+  else if (REQ_INDIRECT_DEPTS.includes(dept)) { setReqRadio('reqScope', 'CLIENT'); setReqRadio('reqCostType', 'INDIRECT'); }
   else if (REQ_DIRECT_DEPTS.includes(dept) || !deptWo) { setReqRadio('reqScope', 'CLIENT'); setReqRadio('reqCostType', 'DIRECT'); }
   else {
     setReqRadio('reqScope', 'INTERNAL');
@@ -1036,6 +1048,12 @@ function onReqScopeChange() {
   document.getElementById('reqProjectOptions').innerHTML = scopeProjects().map(x =>
     `<option value="${reqEsc(x.code)}">${reqEsc(x.name)}</option>`).join('');
   document.getElementById('reqProjectID').placeholder = internal ? 'Cari divisi: 901 Direksi ... 905 Operation' : 'Cari kode / nama project client...';
+  // Area cuma buat project client yang dibagi area. Non-Project gak pakai Area (token RR/AR-9xx
+  // dicocokkan ke kode divisi saja), jadi disembunyikan & dikosongkan.
+  const areaEl = document.getElementById('reqArea');
+  const areaGroup = areaEl ? areaEl.closest('.input-group') : null;
+  if (areaGroup) areaGroup.style.display = internal ? 'none' : '';
+  if (internal && areaEl) areaEl.value = '';
   onReqProjectChange();
 }
 function onReqProjectChange() {
