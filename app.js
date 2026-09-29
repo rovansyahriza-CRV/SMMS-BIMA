@@ -943,7 +943,7 @@ async function loadRequestTableData() {
 //  - Project client (014, 015, ...): Direct -> WO scope (WO-001 dst) | Indirect -> WO-xxx-IND
 //  - Non-Project (901-905): WO departemen (WO-9xx-XXX), jenis biaya OVERHEAD
 // Format lama tetap diisi: PROJECTID = kode project, WO_NO = nomor WO (approval/monitoring/PDF).
-let reqProjects = [], reqWorkOrders = [], reqPickersLoaded = false, reqFungsiLoaded = false;
+let reqProjects = [], reqWorkOrders = [], reqPickersLoaded = false, reqFungsiLoaded = false, reqFungsiAll = [], reqWoPreviewToken = 0;
 // Default lingkup/jenis biaya dari departemen pemohon (pemohon tetap bisa ganti).
 const REQ_INDIRECT_DEPTS = ['HSE', 'QAC', 'Project Control', 'Project', 'Direct Project (Umum)'];
 const REQ_DIRECT_DEPTS = ['Civil Construction', 'Mechanical Construction'];
@@ -967,7 +967,7 @@ async function initRequestPickers() {
   projInput.addEventListener('change', onReqProjectChange);
   woInput.addEventListener('input', onReqWoChange);
   woInput.addEventListener('change', onReqWoChange);
-  document.getElementById('reqFungsi').addEventListener('change', renderReqSummary);
+  document.getElementById('reqFungsi').addEventListener('change', updateDeptWoPreview);
   projInput.addEventListener('focus', () => { if (!reqPickersLoaded) loadRequestPickers(); });
   await Promise.all([loadRequestPickers(), loadReqFungsiOptions()]);
   applyReqDefaults();
@@ -990,19 +990,62 @@ async function loadRequestPickers() {
     document.getElementById('reqProjectHint').textContent = '⚠ Daftar project gagal dimuat, coba refresh halaman.';
   }
 }
-// Daftar fungsi = daftar Departemen karyawan aktif (HSE, QAC, Procurement, ...).
+// Daftar fungsi = daftar Departemen karyawan aktif (HSE, QAC, Procurement, ...). Buat Non-Project
+// (Overhead), daftar ini difilter jadi cuma fungsi yang punya WO departemen di divisi terpilih
+// (lihat renderReqFungsiOptions/overheadDeptsForProject) -- Indirect & Direct tetap daftar penuh.
 async function loadReqFungsiOptions() {
   const sel = document.getElementById('reqFungsi');
   try {
     const { data, error } = await supabaseClient.from('karyawanTbl').select('Departemen').eq('IsActive', true);
     if (error) throw error;
-    const list = [...new Set((data || []).map(r => String(r.Departemen || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    sel.innerHTML = '<option value="">Pilih fungsi...</option>' + list.map(d => `<option value="${reqEsc(d)}">${reqEsc(d)}</option>`).join('');
+    reqFungsiAll = [...new Set((data || []).map(r => String(r.Departemen || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     reqFungsiLoaded = true;
+    renderReqFungsiOptions();
   } catch (err) {
     console.warn('Gagal memuat daftar fungsi:', err.message);
     sel.innerHTML = '<option value="">⚠ Gagal memuat, refresh halaman</option>';
   }
+}
+// Fungsi yang tersedia di divisi Non-Project terpilih (dari WO Overhead-nya) -- null kalau bukan
+// Non-Project (Direct/Indirect tetap pakai daftar penuh reqFungsiAll).
+function overheadDeptsForProject(project) {
+  if (!project || project.projectType !== 'INTERNAL') return null;
+  const list = [...new Set(reqWosOf(project).map(w => w.departemen).filter(Boolean))];
+  return list.length ? list.sort((a, b) => a.localeCompare(b)) : null;
+}
+function renderReqFungsiOptions() {
+  const sel = document.getElementById('reqFungsi');
+  if (!sel || !reqFungsiLoaded) return;
+  const list = overheadDeptsForProject(findReqProject()) || reqFungsiAll;
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">Pilih fungsi...</option>' + list.map(d => `<option value="${reqEsc(d)}">${reqEsc(d)}</option>`).join('');
+  sel.value = list.includes(keep) ? keep : '';
+}
+// Overhead & Indirect: WO_NO bukan dipilih manual lagi, tapi preview nomor referensi turunan
+// (peek=true -- gak naikin counter) begitu Fungsi/Project kepilih. Nomor beneran (yang kepakai)
+// baru digenerate sekali lagi pas submit (lihat handleBatchSubmitRequest).
+async function updateDeptWoPreview() {
+  const project = findReqProject();
+  const kind = reqCostType();
+  const woInput = document.getElementById('reqWoNo');
+  if (!(kind === 'OVERHEAD' || kind === 'INDIRECT') || !project) { onReqWoChange(); return; }
+  const fungsi = document.getElementById('reqFungsi').value;
+  if (!fungsi) { woInput.value = ''; woInput.placeholder = 'Pilih Fungsi / bidang biaya dulu...'; onReqWoChange(); return; }
+  const myToken = ++reqWoPreviewToken;
+  woInput.placeholder = 'Menghitung nomor WO...';
+  try {
+    const projectCodeForRef = kind === 'INDIRECT' ? project.code : null;
+    const { data, error } = await supabaseClient.rpc('op_generate_dept_ref', { p_departemen: fungsi, p_project_code: projectCodeForRef, p_peek: true });
+    if (error) throw error;
+    if (myToken !== reqWoPreviewToken) return;
+    woInput.value = data || '';
+  } catch (err) {
+    if (myToken !== reqWoPreviewToken) return;
+    console.warn('Gagal preview nomor WO departemen:', err.message);
+    woInput.value = '';
+    woInput.placeholder = 'Gagal hitung nomor WO, coba pilih ulang Fungsi.';
+  }
+  onReqWoChange();
 }
 // Isi default: project = penugasan karyawan (karyawanTbl.Type). Jenis biaya project client ikut
 // departemen (Civil/Mechanical Construction -> Direct, lainnya di site -> Indirect). Kalau penugasan
@@ -1066,15 +1109,24 @@ function onReqProjectChange() {
   hint.textContent = project ? `✓ ${project.name}${project.projectType === 'INTERNAL' ? ' · Divisi ' + (project.divisi || '-') : ''}`
     : (typed ? (reqScope() === 'INTERNAL' ? 'Pilih divisi Non-Project dari daftar (901-905).' : 'Pilih project client dari daftar.') : '');
   hint.className = 'picker-hint' + (project ? ' ok' : '');
+  renderReqFungsiOptions();
+  woInput.disabled = !project;
+  // Overhead & Indirect: WO gak dipilih manual lagi -- diturunin dari Fungsi (Overhead) atau
+  // otomatis satu-satunya WO-xxx-IND project ini (Indirect), lihat updateDeptWoPreview.
+  const autoGen = kind === 'OVERHEAD' || kind === 'INDIRECT';
+  woInput.readOnly = autoGen;
+  if (autoGen) {
+    document.getElementById('reqWoOptions').innerHTML = '';
+    if (!project) { woInput.value = ''; woInput.placeholder = 'Pilih Project dulu...'; onReqWoChange(); }
+    else updateDeptWoPreview();
+    return;
+  }
   document.getElementById('reqWoOptions').innerHTML = wos.map(w =>
     `<option value="${reqEsc(w.number)}">${reqEsc(w.departemen || w.title)}</option>`).join('');
   // WO yang udah keisi tapi bukan milik project/jenis ini -> kosongkan.
   if (woInput.value && !wos.some(w => w.number === woInput.value.trim())) woInput.value = '';
-  woInput.disabled = !project;
-  // Indirect cuma ada 1 WO per project (WO-xxx-IND) -> diisi otomatis & dikunci.
-  woInput.readOnly = kind === 'INDIRECT';
   if (!project) woInput.placeholder = 'Pilih Project dulu...';
-  else if (!wos.length) woInput.placeholder = kind === 'INDIRECT' ? 'Project ini belum punya WO Indirect' : 'Belum ada WO aktif untuk pilihan ini';
+  else if (!wos.length) woInput.placeholder = 'Belum ada WO aktif untuk pilihan ini';
   else woInput.placeholder = `Cari No. / judul WO (${wos.length} WO)...`;
   if (project && !woInput.value) {
     const dept = reqUserDept();
@@ -1084,7 +1136,19 @@ function onReqProjectChange() {
   }
   onReqWoChange();
 }
-function findReqWo() { return reqWosOf(findReqProject()).find(w => w.number === document.getElementById('reqWoNo').value.trim()) || null; }
+// Overhead: WO ditentuin dari Fungsi (WO departemen yang departemen-nya cocok). Indirect: WO
+// tunggal (WO-xxx-IND) milik project, gak peduli teks yang lagi kepreview di field WO. Direct:
+// tetap literal, dicocokkan ke teks yang diketik/dipilih user.
+function findReqWo() {
+  const project = findReqProject();
+  const kind = reqCostType();
+  if (kind === 'INDIRECT') return reqWosOf(project)[0] || null;
+  if (kind === 'OVERHEAD') {
+    const fungsi = document.getElementById('reqFungsi').value;
+    return fungsi ? reqWosOf(project).find(w => w.departemen === fungsi) || null : null;
+  }
+  return reqWosOf(project).find(w => w.number === document.getElementById('reqWoNo').value.trim()) || null;
+}
 function onReqWoChange() {
   const wo = findReqWo();
   const hint = document.getElementById('reqWoHint');
@@ -1177,6 +1241,22 @@ async function handleBatchSubmitRequest(e) {
 
   // Snapshot pembebanan biaya (WO id, jenis biaya, fungsi) -- sama untuk semua baris item.
   const allocation = getReqAllocation();
+  // Overhead (Non-Project) & Indirect: WO_NO diganti nomor referensi turunan per departemen+tahun
+  // (WO-<div>-<dept>-<tahun>-<urut>[-<kodeProjectClient>]), cuma buat pengelompokan cost -- WoID
+  // tetap nunjuk ke WO asli yang dipilih. Direct gak berubah, tetap nomor WO scope client aslinya.
+  if (allocation.CostType === 'OVERHEAD' || allocation.CostType === 'INDIRECT') {
+    try {
+      const projectCodeForRef = allocation.CostType === 'INDIRECT' ? headerData.projectId : null;
+      const { data: deptRef, error: deptRefError } = await supabaseClient.rpc('op_generate_dept_ref', {
+        p_departemen: allocation.CostFunction,
+        p_project_code: projectCodeForRef
+      });
+      if (deptRefError) throw deptRefError;
+      if (deptRef) headerData.woNo = deptRef;
+    } catch (deptRefErr) {
+      console.warn('Gagal generate nomor referensi WO departemen, pakai nomor WO asli:', deptRefErr.message);
+    }
+  }
   const itemsPayload = [];
   rows.forEach(tr => {
     const durationVal = tr.querySelector('.row-duration')?.value;
