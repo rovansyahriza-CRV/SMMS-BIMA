@@ -1609,6 +1609,14 @@ function renderViewReportTable() {
           <button type="button" class="btn-icon" onclick="regenerateRfqReport(${r.rfqid}, this)" title="Generate / Refresh PDF RFQ ke Google Drive & Buka" style="padding:4px 8px; font-size:12px; border-radius:6px; background:#f4efe9; border:1px solid #dcd8cc; cursor:pointer;">🔄</button>
         </div>
       `;
+    } else if (category === 'endUserReceiving') {
+      const noTrxArg = String(r.noTransaksi).replace(/'/g, "\\'");
+      reportCell = `
+        <div style="display:inline-flex; gap:6px; align-items:center;">
+          ${r.reportUrl ? `<a href="${r.reportUrl}" target="_blank" rel="noopener" class="btn-logout-card" style="display:inline-flex;">📄 Lihat Report</a>` : `<button type="button" class="btn-logout-card" style="display:inline-flex; background:#e8562c; color:#fff;" onclick="regenerateEndUserReceivingReport('${noTrxArg}', this)">📄 Generate & Lihat PDF</button>`}
+          <button type="button" class="btn-icon" onclick="regenerateEndUserReceivingReport('${noTrxArg}', this)" title="Generate / Refresh PDF End User Receiving ke Google Drive & Buka" style="padding:4px 8px; font-size:12px; border-radius:6px; background:#f4efe9; border:1px solid #dcd8cc; cursor:pointer;">🔄</button>
+        </div>
+      `;
     } else if (category === 'poso') {
       reportCell = `
         <div style="display:inline-flex; gap:6px; align-items:center;">
@@ -1708,7 +1716,8 @@ async function regenerateRfqReport(rfqId, btnEl) {
       const uploaded = await uploadReportPdfToDrive(pdfBlob, `RFQ_${String(noRfq).replace(/\//g, '-')}.pdf`);
       if (uploaded && uploaded.fileId) {
         directUrl = buildDriveViewUrl(uploaded);
-        await supabaseClient.from('rfq').update({ ReportURL: directUrl, ReportFileID: uploaded.fileId }).eq('RFQID', rfqid);
+        const { error: updErr } = await supabaseClient.from('rfq').update({ ReportURL: directUrl, ReportFileID: uploaded.fileId }).eq('RFQID', rfqid);
+        if (updErr) console.warn('Gagal simpan ReportURL RFQ:', updErr);
       }
     } catch (eDrive) {
       console.warn('Upload Drive error (RFQ):', eDrive);
@@ -1722,6 +1731,107 @@ async function regenerateRfqReport(rfqId, btnEl) {
   } catch (err) {
     console.error('Generate PDF RFQ gagal:', err);
     showToast(`Gagal generate PDF RFQ: ${err.message}`, 'error');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = originalText; }
+  }
+}
+
+// Generate ulang PDF End User Receiving dari data DB (dipakai kalau upload PDF pas serah
+// terima di end-user-receiving.html gagal). Project ID gak disimpan di DB, jadi tampil "-".
+async function regenerateEndUserReceivingReport(noTrx, btnEl) {
+  const originalText = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
+  try {
+    showToast('Meng-generate PDF report End User Receiving...', 'info');
+    const { data: euRows, error: euErr } = await supabaseClient
+      .from('endUserReceiving').select('*').eq('NoTransaksi', noTrx);
+    if (euErr) throw euErr;
+    if (!euRows || euRows.length === 0) throw new Error('Transaksi tidak ditemukan.');
+    const first = euRows[0];
+
+    // Rantai: endUserReceiving -> siteReceiving -> delivery -> purchaseOrderDetail (info item)
+    const recvIds = [...new Set(euRows.map(r => r.ReceivingID).filter(v => v != null))];
+    const { data: srRows } = await supabaseClient.from('siteReceiving').select('ReceivingID, DeliveryID').in('ReceivingID', recvIds.length ? recvIds : [0]);
+    const delIds = [...new Set((srRows || []).map(r => r.DeliveryID).filter(v => v != null))];
+    const { data: delRows } = await supabaseClient.from('delivery').select('DeliveryID, PODetailID').in('DeliveryID', delIds.length ? delIds : [0]);
+    const podIds = [...new Set((delRows || []).map(r => r.PODetailID).filter(v => v != null))];
+
+    const personIds = [...new Set([first.IssuedBy, first.ConfirmedBy].filter(v => v != null))];
+    const [{ data: podRows }, { data: empRows }] = await Promise.all([
+      supabaseClient.from('purchaseOrderDetail').select('PODetailID, ItemDescription, Unit, ItemGroup, ItemID').in('PODetailID', podIds.length ? podIds : [0]),
+      supabaseClient.from('karyawanTbl').select('Id, NamaPersonnel, Kualifikasi, QrCodeId').in('Id', personIds.length ? personIds : [0]),
+    ]);
+
+    const srMap = {}; (srRows || []).forEach(r => { srMap[r.ReceivingID] = r.DeliveryID; });
+    const delMap = {}; (delRows || []).forEach(r => { delMap[r.DeliveryID] = r.PODetailID; });
+    const podMap = {}; (podRows || []).forEach(r => { podMap[r.PODetailID] = r; });
+    const empMap = {}; (empRows || []).forEach(e => { empMap[e.Id] = e; });
+
+    // Satu item bisa diambil dari beberapa batch siteReceiving (FIFO) -- gabung per PODetailID.
+    const itemMap = {};
+    euRows.forEach(r => {
+      const podId = delMap[srMap[r.ReceivingID]];
+      const pod = podMap[podId] || {};
+      const key = podId != null ? podId : `recv-${r.ReceivingID}`;
+      if (!itemMap[key]) {
+        itemMap[key] = {
+          kode: itemCode({ ItemGroup: pod.ItemGroup, ItemID: pod.ItemID }) || (pod.ItemGroup || ''),
+          desk: pod.ItemDescription || '-',
+          qty: 0,
+          unit: pod.Unit || '',
+        };
+      }
+      itemMap[key].qty += Number(r.QtyConfirmed || 0);
+    });
+
+    let photoDataUrl = null;
+    if (first.PhotoFileID) {
+      try {
+        const photo = await readFromDrive(first.PhotoFileID);
+        photoDataUrl = `data:${photo.mimeType || 'image/jpeg'};base64,${photo.base64Data}`;
+      } catch (ePhoto) {
+        console.warn('Gagal ambil foto EUR dari Drive:', ePhoto);
+      }
+    }
+
+    const issuer = empMap[first.IssuedBy] || {};
+    const recipient = empMap[first.ConfirmedBy] || {};
+    const trxDate = first.ConfirmedDate || first.created_at;
+    const pdfDoc = await generateEndUserReceivingReportPdf({
+      noTransaksi: noTrx,
+      tanggalSerahTerima: trxDate ? new Date(trxDate).toLocaleString('id-ID') : '-',
+      projectId: '-',
+      diserahkanOleh: issuer.NamaPersonnel || (first.IssuedBy != null ? `ID ${first.IssuedBy}` : '-'),
+      diserahkanOlehSub: (issuer.Kualifikasi || 'Storeman') + ' — ' + (first.LokasiNama || '-'),
+      diserahkanOlehQr: `QrCodeID=${issuer.QrCodeId || ''}|NoTransaksi=${noTrx}`,
+      diterimaOleh: recipient.NamaPersonnel || (first.ConfirmedBy != null ? `ID ${first.ConfirmedBy}` : '-'),
+      diterimaOlehSub: recipient.Kualifikasi || 'End User',
+      diterimaOlehQr: `QrCodeID=${recipient.QrCodeId || ''}|NoTransaksi=${noTrx}`,
+      lokasiNama: first.LokasiNama || null,
+      items: Object.values(itemMap),
+      photoDataUrl,
+    });
+    const pdfBlob = reportPdfToBlob(pdfDoc);
+
+    let directUrl = null;
+    try {
+      const uploaded = await uploadReportPdfToDrive(pdfBlob, `EUR_${String(noTrx).replace(/\//g, '-')}.pdf`);
+      if (uploaded && uploaded.fileId) {
+        directUrl = buildDriveViewUrl(uploaded);
+        const { error: updErr } = await supabaseClient.from('endUserReceiving')
+          .update({ ReportURL: directUrl, ReportFileID: uploaded.fileId }).eq('NoTransaksi', noTrx);
+        if (updErr) console.warn('Gagal simpan ReportURL EUR:', updErr);
+      }
+    } catch (eDrive) {
+      console.warn('Upload Drive error (EUR):', eDrive);
+    }
+
+    showToast(`PDF ${noTrx} berhasil di-generate!`, 'success');
+    loadViewReportPage('endUserReceiving');
+    window.open(directUrl || URL.createObjectURL(pdfBlob), '_blank');
+  } catch (err) {
+    console.error('Generate PDF End User Receiving gagal:', err);
+    showToast(`Gagal generate PDF End User Receiving: ${err.message}`, 'error');
   } finally {
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = originalText; }
   }
