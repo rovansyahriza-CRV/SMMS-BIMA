@@ -561,15 +561,17 @@ async function generateRfqReportPdf(data) {
   // data: { noRfq, tanggalRfq, createdBy, createdBySub, createdByQr, notes, deliveryPoint,
   //         items:[{noRequest, kode, desk, qty, unit}], vendors:[{nama, email, status}] }
   const usableW = 210 - 16 * 2;
-  const noColW = 8, reqNoColW = 44, kodeColW = 20, qtyColW = 20;
-  const deskColW = usableW - noColW - reqNoColW - kodeColW - qtyColW;
+  const noColW = 8, reqNoColW = 40, kodeColW = 20, qtyColW = 18, priceColW = 28;
+  const deskColW = usableW - noColW - reqNoColW - kodeColW - qtyColW - priceColW;
 
+  // Unit Price sengaja dikosongkan -- diisi manual oleh admin di hasil print.
   const itemsRows = data.items.map((it, i) => [
     String(i + 1),
     it.noRequest || "-",
     it.kode || "-",
     it.desk,
     { text: `${it.qty} ${it.unit || ""}`, align: "right" },
+    { text: "", align: "right" },
   ]);
 
   const vendorColW2 = [56, 70, 42];
@@ -585,8 +587,8 @@ async function generateRfqReportPdf(data) {
     ],
     noteBlocks: [{ label: "Catatan", text: data.notes }],
     itemsTitle: "Item yang Di-RFQ-kan",
-    itemsHead: ["No", "No. Request", "Kode Item", "Deskripsi", { text: "Qty", align: "right" }],
-    itemsColWidths: [noColW, reqNoColW, kodeColW, deskColW, qtyColW],
+    itemsHead: ["No", "No. Request", "Kode Item", "Deskripsi", { text: "Qty", align: "right" }, { text: "Unit Price", align: "right" }],
+    itemsColWidths: [noColW, reqNoColW, kodeColW, deskColW, qtyColW, priceColW],
     itemsRows,
     extraTable: {
       title: "Vendor yang Diundang",

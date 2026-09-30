@@ -1533,7 +1533,8 @@ async function loadViewReportPage(category, btnEl) {
       const { data, error } = await supabaseClient.from('rfq').select('*').order('RFQID', { ascending: false });
       if (error) throw error;
       rows = (data || []).map(r => ({
-        noTransaksi: r.NoRFQ, tanggal: pickReportDate(r),
+        rfqid: r.RFQID,
+        noTransaksi: r.NoRFQ, tanggal: r.RFQDate || pickReportDate(r),
         keterangan: r.CreatedBy ? `Dibuat oleh ${r.CreatedBy}` : '-',
         reportUrl: r.ReportURL,
       }));
@@ -1601,6 +1602,13 @@ function renderViewReportTable() {
           <button type="button" class="btn-icon" onclick="regenerateRequestReport('${r.noTransaksi}', this)" title="Refresh / Generate Ulang PDF Report" style="padding:4px 8px; font-size:12px; border-radius:6px; background:#f4efe9; border:1px solid #dcd8cc; cursor:pointer;">🔄</button>
         </div>
       `;
+    } else if (category === 'rfq') {
+      reportCell = `
+        <div style="display:inline-flex; gap:6px; align-items:center;">
+          ${r.reportUrl ? `<a href="${r.reportUrl}" target="_blank" rel="noopener" class="btn-logout-card" style="display:inline-flex;">📄 Lihat Report</a>` : `<button type="button" class="btn-logout-card" style="display:inline-flex; background:#e8562c; color:#fff;" onclick="regenerateRfqReport(${r.rfqid}, this)">📄 Generate & Lihat PDF</button>`}
+          <button type="button" class="btn-icon" onclick="regenerateRfqReport(${r.rfqid}, this)" title="Generate / Refresh PDF RFQ ke Google Drive & Buka" style="padding:4px 8px; font-size:12px; border-radius:6px; background:#f4efe9; border:1px solid #dcd8cc; cursor:pointer;">🔄</button>
+        </div>
+      `;
     } else if (category === 'poso') {
       reportCell = `
         <div style="display:inline-flex; gap:6px; align-items:center;">
@@ -1638,6 +1646,84 @@ async function regenerateRequestReport(refno, btnEl) {
     showToast(`Error: ${e.message}`, 'error');
   } finally {
     if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄'; }
+  }
+}
+
+async function regenerateRfqReport(rfqId, btnEl) {
+  const originalText = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
+  try {
+    showToast('Meng-generate PDF report RFQ...', 'info');
+    const rfqid = Number(rfqId);
+    const { data: rfqRow, error: rfqErr } = await supabaseClient
+      .from('rfq').select('*').eq('RFQID', rfqid).single();
+    if (rfqErr || !rfqRow) throw new Error('RFQ tidak ditemukan.');
+
+    const [{ data: rfqItemRows }, { data: rfqVendorRows }] = await Promise.all([
+      supabaseClient.from('rfqDetail').select('RFQDetailID, RequestID, ItemID, ItemDescription, Unit, Qty').eq('RFQID', rfqid),
+      supabaseClient.from('rfqVendor').select('VendorID, ConfirmationStatus, Status').eq('RFQID', rfqid),
+    ]);
+
+    const reqIds = [...new Set((rfqItemRows || []).map(r => r.RequestID).filter(v => v != null))];
+    const vendorIds = [...new Set((rfqVendorRows || []).map(v => v.VendorID).filter(v => v != null))];
+    const [{ data: reqRows }, { data: vendorRows }] = await Promise.all([
+      supabaseClient.from('request').select('ID, RefNo, ItemGroup').in('ID', reqIds.length ? reqIds : [0]),
+      supabaseClient.from('vendor').select('VendorID, VendorName, Email').in('VendorID', vendorIds.length ? vendorIds : [0]),
+    ]);
+    const reqInfoMap = {};
+    (reqRows || []).forEach(r => { reqInfoMap[r.ID] = r; });
+    const vendorMap = {};
+    (vendorRows || []).forEach(v => { vendorMap[v.VendorID] = v; });
+
+    const rfqDate = rfqRow.RFQDate || rfqRow.created_at;
+    const noRfq = rfqRow.NoRFQ;
+    const pdfDoc = await generateRfqReportPdf({
+      noRfq,
+      tanggalRfq: (rfqDate ? new Date(rfqDate) : new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+      createdBy: rfqRow.CreatedBy || '-',
+      createdBySub: '',
+      createdByQr: `NoTransaksi=${noRfq}`,
+      deliveryPoint: rfqRow.DeliveryPoint || '',
+      notes: rfqRow.Notes || '',
+      items: (rfqItemRows || []).map(rd => {
+        const reqInfo = reqInfoMap[rd.RequestID] || {};
+        return {
+          noRequest: reqInfo.RefNo || '-',
+          kode: itemCode({ ItemGroup: reqInfo.ItemGroup, ItemID: rd.ItemID }) || (reqInfo.ItemGroup || ''),
+          desk: rd.ItemDescription,
+          qty: rd.Qty,
+          unit: rd.Unit,
+        };
+      }),
+      vendors: (rfqVendorRows || []).map(rv => ({
+        nama: vendorMap[rv.VendorID]?.VendorName || `Vendor #${rv.VendorID}`,
+        email: vendorMap[rv.VendorID]?.Email || '-',
+        status: rv.ConfirmationStatus || rv.Status || 'Menunggu',
+      })),
+    });
+    const pdfBlob = reportPdfToBlob(pdfDoc);
+
+    let directUrl = null;
+    try {
+      const uploaded = await uploadReportPdfToDrive(pdfBlob, `RFQ_${String(noRfq).replace(/\//g, '-')}.pdf`);
+      if (uploaded && uploaded.fileId) {
+        directUrl = buildDriveViewUrl(uploaded);
+        await supabaseClient.from('rfq').update({ ReportURL: directUrl, ReportFileID: uploaded.fileId }).eq('RFQID', rfqid);
+      }
+    } catch (eDrive) {
+      console.warn('Upload Drive error (RFQ):', eDrive);
+    }
+
+    showToast(`PDF ${noRfq} berhasil di-generate!`, 'success');
+    loadViewReportPage('rfq');
+
+    // Kalau upload Drive gagal tetap tampilkan PDF lokal-nya.
+    window.open(directUrl || URL.createObjectURL(pdfBlob), '_blank');
+  } catch (err) {
+    console.error('Generate PDF RFQ gagal:', err);
+    showToast(`Gagal generate PDF RFQ: ${err.message}`, 'error');
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = originalText; }
   }
 }
 
