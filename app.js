@@ -105,9 +105,15 @@ async function initAuthSession() {
         const picList = (currentUser.PIC || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
         const authorStr = (currentUser.Author || '').toLowerCase();
         const isAllAdmin = picList.includes('all') || picList.includes('*') || authorStr.split(',').map(s => s.trim()).includes('all');
+        const hadMasterAccess = Boolean(currentUser.canInputMaster);
         currentUser.canInputMaster = isAllAdmin || picList.includes('input master resources') || picList.includes('mr');
         sessionStorage.setItem('bima_user', JSON.stringify(currentUser));
-        applyMenuAccess();
+        // updateUIAuth (bukan cuma applyMenuAccess) biar form input Master Resources ikut
+        // muncul/hilang sesuai PIC terbaru -- dulu menunya muncul tapi form-nya tetap tersembunyi
+        // sampai logout-login ulang.
+        updateUIAuth();
+        // Tabel master sudah ke-render pakai hak akses lama -> render ulang biar tombol edit/hapus ikut.
+        if (hadMasterAccess !== currentUser.canInputMaster) loadCurrentCategory();
       }
     } catch (e) {
       console.warn('Auto-sync user access error:', e.message);
