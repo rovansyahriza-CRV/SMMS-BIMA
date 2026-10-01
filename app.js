@@ -885,7 +885,8 @@ async function loadRequestTableData() {
   let { data, error } = await supabaseClient
     .from('request')
     .select('*')
-    .order('created_at', { ascending: false }); // Urutkan dari yang terbaru
+    .order('created_at', { ascending: false, nullsFirst: false }) // Urutkan dari yang terbaru
+    .order('ID', { ascending: false }); // cadangan kalau jam kosong
 
   if (error) throw error;
   console.log('Data dari Supabase:', data);
@@ -1546,7 +1547,7 @@ async function loadViewReportPage(category, btnEl) {
     let rows = [];
 
     if (category === 'request') {
-      const { data, error } = await supabaseClient.from('request').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabaseClient.from('request').select('*').order('created_at', { ascending: false, nullsFirst: false }).order('ID', { ascending: false });
       if (error) throw error;
       const seen = new Set();
       (data || []).forEach(r => {
