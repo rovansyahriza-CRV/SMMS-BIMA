@@ -677,7 +677,26 @@ function switchMainSection(sectionId, btnEl) {
   }
 
   if (sectionId === 'sec-vendor') {
+    setupVendorSection();
+  }
+}
+
+// Diisi applyMenuAccess(). canApprove = Author RV/AV, canRegister = PIC IV atau RV/AV.
+let vendorAccess = { canApprove: false, canRegister: false };
+
+// User yang cuma punya PIC IV: langsung tampil form registrasi, tabel approval disembunyikan.
+function setupVendorSection() {
+  const canApprove = vendorAccess.canApprove;
+  const titleEl = document.getElementById('vendorSectionTitle');
+  const tableEl = document.getElementById('tableVendor');
+  const toggleBtn = document.getElementById('btnToggleVendorRegister');
+  if (titleEl) titleEl.textContent = canApprove ? 'Approval Vendor' : 'Registrasi Vendor Baru';
+  if (tableEl) tableEl.style.display = canApprove ? '' : 'none';
+  if (toggleBtn) toggleBtn.style.display = canApprove ? '' : 'none';
+  if (canApprove) {
     loadVendorList();
+  } else {
+    toggleVendorRegisterForm(true);
   }
 }
 
@@ -1414,9 +1433,13 @@ function applyMenuAccess() {
   const btnApproval = document.getElementById('btnNavApproval');
   if (btnApproval) btnApproval.style.display = (matchAuthor('AR', 'RR', 'APPROVAL REQUEST', 'REVIEW REQUEST') || authorTokens.some(t => t.startsWith('AR-') || t.startsWith('RR-'))) ? 'flex' : 'none';
 
-  // 4. Vendor Pendaftaran (Inisial: AV / RV / Approval Vendor / Review Vendor)
+  // 4. Vendor (Author AV / RV = review/approve vendor; PIC IV / Input Vendor = cuma input vendor baru)
+  // RV/AV tetap boleh input vendor baru seperti sebelumnya.
+  const canApproveVendor = matchAuthor('AV', 'RV', 'APPROVAL VENDOR', 'REVIEW VENDOR');
+  const canRegisterVendor = canApproveVendor || matchPic('IV', 'INPUT VENDOR');
+  vendorAccess = { canApprove: canApproveVendor, canRegister: canRegisterVendor };
   const btnVendor = document.getElementById('btnNavVendor');
-  if (btnVendor) btnVendor.style.display = (matchAuthor('AV', 'RV', 'APPROVAL VENDOR', 'REVIEW VENDOR')) ? 'flex' : 'none';
+  if (btnVendor) btnVendor.style.display = canRegisterVendor ? 'flex' : 'none';
 
   // 5. Approval Seleksi Vendor (Inisial: ASV / ASV-101 / Approval Seleksi Vendor)
   const btnApprovalRfq = document.getElementById('btnNavApprovalRfq');
@@ -2298,10 +2321,15 @@ async function submitVendorRegisterAdmin(event) {
     const { error: insertErr } = await supabaseClient.from('vendor').insert(data);
     if (insertErr) throw insertErr;
 
-    showToast('Vendor berhasil didaftarkan, masuk antrian approval di bawah.', 'success');
     document.getElementById('formVendorRegisterAdmin').reset();
-    toggleVendorRegisterForm(false);
-    loadVendorList();
+    if (vendorAccess.canApprove) {
+      showToast('Vendor berhasil didaftarkan, masuk antrian approval di bawah.', 'success');
+      toggleVendorRegisterForm(false);
+      loadVendorList();
+    } else {
+      // PIC IV saja: form tetap terbuka buat input vendor berikutnya.
+      showToast('Vendor berhasil didaftarkan, menunggu review & approval.', 'success');
+    }
   } catch (err) {
     showToast('Gagal mendaftarkan vendor: ' + err.message, 'error');
   } finally {
