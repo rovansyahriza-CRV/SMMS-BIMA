@@ -278,6 +278,24 @@
     el.style.display = 'block';
   }
 
+  // Sesi vendor (hasil PIN yang dicek server) -- disimpan per tab, khusus undangan ini.
+  // PIN gak pernah dikirim ke browser lagi; dulu dicocokkan di browser & bisa diintip.
+  const VENDOR_TOKEN_KEY = 'vendorRfq:' + rfqIdParam + ':' + vendorIdParam;
+  let vendorToken = null;
+  let infoUndangan = null;
+  function tokenGet() { try { return sessionStorage.getItem(VENDOR_TOKEN_KEY); } catch (e) { return null; } }
+  function tokenSet(v) { try { v ? sessionStorage.setItem(VENDOR_TOKEN_KEY, v) : sessionStorage.removeItem(VENDOR_TOKEN_KEY); } catch (e) {} }
+
+  function applyPayload(data) {
+    rfqHeader = data.rfq || {};
+    vendorData = data.vendor || {};
+    rfqVendorRow = data.rfqVendor || {};
+    rfqItems = data.items || [];
+    existingQuotes = {};
+    (data.quotes || []).forEach(q => { existingQuotes[q.RFQDetailID] = q; });
+    existingTerm = data.term || null;
+  }
+
   async function initQuotationPortal() {
     if (!rfqIdParam || !vendorIdParam) {
       document.getElementById('mainContent').innerHTML = `
@@ -290,25 +308,17 @@
     }
 
     try {
-      const [
-        { data: rfqRows, error: rfqErr },
-        { data: venRows, error: venErr },
-        { data: rvRows, error: rvErr }
-      ] = await Promise.all([
-        supabaseClient.from('rfq').select('*').eq('RFQID', rfqIdParam),
-        supabaseClient.from('vendor').select('*').eq('VendorID', vendorIdParam),
-        supabaseClient.from('rfqVendor').select('*').eq('RFQID', rfqIdParam).eq('VendorID', vendorIdParam)
-      ]);
+      // Sudah masuk di tab ini? langsung buka form tanpa PIN lagi.
+      vendorToken = tokenGet();
+      if (vendorToken) {
+        const { data: sesi } = await supabaseClient.rpc('vendor_rfq_data', { p_token: vendorToken });
+        if (sesi && sesi.status === 'OK') { applyPayload(sesi.data); tampilkanTahap(); return; }
+        tokenSet(null); vendorToken = null;
+      }
 
-      if (rfqErr) throw rfqErr;
-      if (venErr) throw venErr;
-      if (rvErr) throw rvErr;
-
-      rfqHeader = (rfqRows || [])[0];
-      vendorData = (venRows || [])[0];
-      rfqVendorRow = (rvRows || [])[0];
-
-      if (!rfqHeader || !vendorData || !rfqVendorRow) {
+      const { data: info, error } = await supabaseClient.rpc('vendor_rfq_info', { p_rfqid: rfqIdParam, p_vendorid: vendorIdParam });
+      if (error) throw error;
+      if (!info || info.status !== 'OK') {
         document.getElementById('mainContent').innerHTML = `
           <div class="card" style="text-align:center;">
             <div style="font-size: 36px; margin-bottom: 8px;">🔍</div>
@@ -317,6 +327,7 @@
           </div>`;
         return;
       }
+      infoUndangan = info;
 
       // Tampilkan PIN Security Gate
       renderPinGate();
@@ -335,7 +346,7 @@
         <div style="font-size: 32px;">🔐</div>
         <div>
           <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 4px;">Autentikasi PIN Vendor</h3>
-          <p style="font-size: 13px; color: var(--muted);">Masukkan 5-digit PIN keamanan yang dikirimkan ke email <strong>${vendorData.Email || 'vendor'}</strong>.</p>
+          <p style="font-size: 13px; color: var(--muted);">Masukkan 5-digit PIN keamanan yang dikirimkan ke email <strong>${(infoUndangan && infoUndangan.emailMasked) || 'vendor'}</strong>.</p>
         </div>
 
         <input type="password" id="inputPin" class="pin-input" maxlength="5" placeholder="•••••" autofocus>
@@ -354,14 +365,34 @@
     });
   }
 
-  function verifyPin() {
+  let pinSedangDicek = false;
+  async function verifyPin() {
+    if (pinSedangDicek) return;
     const entered = document.getElementById('inputPin').value.trim();
-    const expected = String(rfqVendorRow.PIN || '').trim();
-
-    if (entered === expected) {
-      loadQuotationForm();
-    } else {
-      document.getElementById('pinErrMsg').style.display = 'block';
+    const errEl = document.getElementById('pinErrMsg');
+    const btn = document.getElementById('btnVerifyPin');
+    pinSedangDicek = true;
+    if (btn) btn.disabled = true;
+    try {
+      const { data: hasil, error } = await supabaseClient.rpc('vendor_rfq_masuk', { p_rfqid: rfqIdParam, p_vendorid: vendorIdParam, p_pin: entered });
+      if (error) throw error;
+      if (hasil && hasil.status === 'OK') {
+        vendorToken = hasil.token;
+        tokenSet(vendorToken);
+        applyPayload(hasil.data);
+        tampilkanTahap();
+        return;
+      }
+      let pesan = '❌ ' + ((hasil && hasil.message) || 'PIN tidak sesuai.');
+      if (hasil && hasil.status === 'INVALID' && hasil.sisa != null) pesan += ` Sisa percobaan: ${hasil.sisa}.`;
+      errEl.textContent = pesan;
+      errEl.style.display = 'block';
+    } catch (e) {
+      errEl.textContent = '❌ Gagal memeriksa PIN: ' + e.message;
+      errEl.style.display = 'block';
+    } finally {
+      pinSedangDicek = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -372,26 +403,21 @@
       </div>`;
 
     try {
-      const [
-        { data: itemRows, error: itemErr },
-        { data: quoteRows, error: quoteErr },
-        { data: termRows, error: termErr }
-      ] = await Promise.all([
-        supabaseClient.from('rfqDetail').select('*').eq('RFQID', rfqIdParam),
-        supabaseClient.from('rfqQuote').select('*').eq('VendorID', vendorIdParam),
-        supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorRow.RFQVendorID)
-      ]);
+      const { data: sesi, error: sesiErr } = await supabaseClient.rpc('vendor_rfq_data', { p_token: vendorToken || '' });
+      if (sesiErr) throw sesiErr;
+      if (!sesi || sesi.status !== 'OK') { tokenSet(null); vendorToken = null; renderPinGate(); return; }
+      applyPayload(sesi.data);
+      tampilkanTahap();
+    } catch (err) {
+      document.getElementById('mainContent').innerHTML = `
+        <div class="card" style="text-align:center; color: var(--error);">
+          <p>Gagal memuat item RFQ: ${err.message}</p>
+        </div>`;
+    }
+  }
 
-      if (itemErr) throw itemErr;
-      if (quoteErr) throw quoteErr;
-      if (termErr) throw termErr;
-
-      rfqItems = itemRows || [];
-      existingQuotes = {};
-      (quoteRows || []).forEach(q => {
-        existingQuotes[q.RFQDetailID] = q;
-      });
-      existingTerm = (termRows || [])[0] || null;
+  // Pilih layar sesuai tahap undangan (pemenang / ditutup / form penawaran).
+  function tampilkanTahap() {
 
       // 1. Jika vendor sudah disetujui (Approved) sebagai pemenang
       if (rfqVendorRow.Status === 'Approved' || rfqVendorRow.ManagementApproval === 'Approved') {
@@ -425,13 +451,6 @@
       }
 
       renderForm();
-
-    } catch (err) {
-      document.getElementById('mainContent').innerHTML = `
-        <div class="card" style="text-align:center; color: var(--error);">
-          <p>Gagal memuat item RFQ: ${err.message}</p>
-        </div>`;
-    }
   }
 
   function formatCurrencyInput(el) {
@@ -682,46 +701,18 @@
     btn.disabled = true;
     btn.textContent = 'Mengirimkan Penawaran...';
 
-    const trs = document.querySelectorAll('#rfqItemsTbody tr');
+    // Harga & tanggal kirim per item; Qty, PPN 11%, ID penawaran dihitung server.
+    const items = [];
     let hasFilledPrice = false;
-    const quotePayloads = [];
-
-    // Ambil max RFQQuoteID saat ini untuk auto-increment aman
-    let currentMaxQuoteId = 0;
-    try {
-      const { data: maxRows } = await supabaseClient
-        .from('rfqQuote')
-        .select('RFQQuoteID')
-        .order('RFQQuoteID', { ascending: false })
-        .limit(1);
-      if (maxRows && maxRows.length > 0) {
-        currentMaxQuoteId = Number(maxRows[0].RFQQuoteID) || 0;
-      }
-    } catch (e) {
-      console.warn('Get max quote ID:', e);
-    }
-
-    for (const tr of trs) {
-      const detailId = Number(tr.dataset.detailid);
-      const qty = Number(tr.dataset.qty) || 0;
+    document.querySelectorAll('#rfqItemsTbody tr').forEach(tr => {
       const price = parseCurrency(tr.querySelector('.item-price')?.value);
-      const delivDate = tr.querySelector('.item-deliv-date')?.value || null;
-
       if (price > 0) hasFilledPrice = true;
-
-      const existingQ = existingQuotes[detailId];
-      currentMaxQuoteId++;
-
-      quotePayloads.push({
-        RFQQuoteID: existingQ ? existingQ.RFQQuoteID : currentMaxQuoteId,
-        RFQDetailID: detailId,
-        VendorID: vendorIdParam,
-        UnitPrice: price,
-        Qty: qty,
-        VendorDeliveryDate: delivDate,
-        IsSelected: existingQ ? existingQ.IsSelected : 'No'
+      items.push({
+        RFQDetailID: Number(tr.dataset.detailid),
+        UnitPrice: String(price),
+        VendorDeliveryDate: tr.querySelector('.item-deliv-date')?.value || null
       });
-    }
+    });
 
     if (!hasFilledPrice) {
       alert("Harap isi harga satuan minimal 1 item.");
@@ -730,63 +721,28 @@
       return;
     }
 
-    const mobilisasi = parseCurrency(document.getElementById('inputMobilisasi')?.value);
-    const otherCost = parseCurrency(document.getElementById('inputOtherCost')?.value);
-    const otherServiceDesc = document.getElementById('inputOtherServiceDesc')?.value.trim() || null;
-    const ppnType = document.getElementById('selectPpnType')?.value;
-    let ppnAmount = 0;
-    let itemSub = 0;
-    quotePayloads.forEach(q => { itemSub += (q.UnitPrice * q.Qty); });
-    if (ppnType === '11') {
-      ppnAmount = Math.round((itemSub + mobilisasi + otherCost) * 0.11);
-    } else if (ppnType === 'custom') {
-      ppnAmount = parseCurrency(document.getElementById('inputPpnAmount')?.value);
-    }
-
     const paymentTerm = document.getElementById('selectPaymentTerm').value;
-    const dpPercent = paymentTerm === 'DP + Pelunasan' ? (Number(document.getElementById('inputDpPercent').value) || 0) : null;
+    const term = {
+      mobilisasi: String(parseCurrency(document.getElementById('inputMobilisasi')?.value)),
+      otherCost: String(parseCurrency(document.getElementById('inputOtherCost')?.value)),
+      otherDesc: document.getElementById('inputOtherServiceDesc')?.value.trim() || '',
+      ppnType: document.getElementById('selectPpnType')?.value || '11',
+      ppnAmount: String(parseCurrency(document.getElementById('inputPpnAmount')?.value)),
+      paymentTerm,
+      dpPercent: paymentTerm === 'DP + Pelunasan' ? String(Number(document.getElementById('inputDpPercent').value) || 0) : null
+    };
     const notes = document.getElementById('inputVendorNotes').value.trim() || null;
 
     try {
-      // 1. Simpan Quote Items (Upsert)
-      for (const qp of quotePayloads) {
-        const { error: qErr } = await supabaseClient.from('rfqQuote').upsert(qp, { onConflict: 'RFQQuoteID' });
-        if (qErr) {
-          console.warn('Upsert quote item error:', qErr.message);
-          // Fallback delete then insert
-          await supabaseClient.from('rfqQuote').delete().eq('RFQDetailID', qp.RFQDetailID).eq('VendorID', qp.VendorID);
-          await supabaseClient.from('rfqQuote').insert(qp);
-        }
+      const { data: hasil, error } = await supabaseClient.rpc('vendor_rfq_kirim_penawaran', {
+        p_token: vendorToken || '', p_items: items, p_term: term, p_notes: notes
+      });
+      if (error) throw error;
+      if (!hasil || hasil.status !== 'OK') {
+        if (hasil && hasil.status === 'SESSION_EXPIRED') { tokenSet(null); vendorToken = null; }
+        throw new Error((hasil && hasil.message) || 'Penawaran gagal disimpan.');
       }
-
-      // 2. Simpan Commercial Term (Mobilisasi, Biaya Lain, Deskripsi, PPN, Termin)
-      const termPayload = {
-        RFQVendorID: rfqVendorRow.RFQVendorID,
-        MobilisasiCost: mobilisasi,
-        OtherServiceCost: otherCost,
-        OtherServiceDescription: otherServiceDesc,
-        PPNAmount: ppnAmount,
-        PaymentTermType: paymentTerm,
-        DPPercentage: dpPercent,
-        SubmitDate: new Date().toISOString()
-      };
-
-      await supabaseClient
-        .from('rfqVendorTerm')
-        .delete()
-        .eq('RFQVendorID', rfqVendorRow.RFQVendorID);
-
-      const { error: insErr } = await supabaseClient
-        .from('rfqVendorTerm')
-        .insert(termPayload);
-      if (insErr) console.warn('Insert rfqVendorTerm error:', insErr.message);
-
-      // 3. Update Status di rfqVendor
-      await supabaseClient.from('rfqVendor').update({
-        ConfirmationStatus: 'Submitted',
-        ConfirmationDate: new Date().toISOString(),
-        Notes: notes
-      }).eq('RFQVendorID', rfqVendorRow.RFQVendorID);
+      applyPayload(hasil.data);
 
       // Render Sukses
       document.getElementById('mainContent').innerHTML = `
@@ -800,7 +756,7 @@
           <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-width: 400px; margin: 0 auto; font-size: 13px; text-align: left;">
             <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
               <span style="color:var(--muted);">Total Penawaran:</span>
-              <strong style="color:var(--primary); font-family:monospace; font-size:14px;">${document.getElementById('sumGrandTotal')?.textContent || '-'}</strong>
+              <strong style="color:var(--primary); font-family:monospace; font-size:14px;">Rp ${Number(hasil.grandTotal || 0).toLocaleString('id-ID')}</strong>
             </div>
             <div style="display:flex; justify-content:space-between;">
               <span style="color:var(--muted);">Waktu Pengiriman:</span>

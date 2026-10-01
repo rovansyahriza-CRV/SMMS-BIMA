@@ -116,6 +116,24 @@ function showError(msg) {
   document.getElementById("app").innerHTML = "";
 }
 
+// Sesi vendor (PIN dicek server) per tab, khusus undangan ini. PIN gak dikirim ke
+// browser lagi -- dulu dicocokkan di browser & bisa diintip.
+const VENDOR_TOKEN_KEY = 'vendorRfq:' + rfqIdParam + ':' + vendorIdParam;
+let vendorToken = null;
+function tokenGet() { try { return sessionStorage.getItem(VENDOR_TOKEN_KEY); } catch (e) { return null; } }
+function tokenSet(v) { try { v ? sessionStorage.setItem(VENDOR_TOKEN_KEY, v) : sessionStorage.removeItem(VENDOR_TOKEN_KEY); } catch (e) {} }
+
+function tampilkanSudahDiputuskan(keputusan) {
+  document.getElementById("app").innerHTML = keputusan === 'Confirmed'
+    ? `<div class="rfq-card" style="text-align:center;">
+        <div class="badge">Sudah Dikonfirmasi</div>
+        <p>Anda sudah mengonfirmasi kesediaan untuk RFQ ini sebelumnya. Terima kasih.</p>
+      </div>`
+    : `<div class="rfq-card" style="text-align:center;">
+        <p>Anda sebelumnya sudah menyatakan tidak dapat memenuhi RFQ ini.</p>
+      </div>`;
+}
+
 async function init() {
   if (!rfqIdParam || !vendorIdParam) {
     showError("Link tidak lengkap. Pastikan Anda membuka link dari email pemberitahuan hasil seleksi vendor.");
@@ -123,58 +141,32 @@ async function init() {
   }
 
   try {
-    const [
-      { data: rvRows, error: rvErr },
-      { data: rfqRows, error: rfqErr },
-      { data: vendorRows, error: venErr }
-    ] = await Promise.all([
-      supabaseClient.from('rfqVendor').select('*').eq('RFQID', rfqIdParam).eq('VendorID', vendorIdParam),
-      supabaseClient.from('rfq').select('*').eq('RFQID', rfqIdParam),
-      supabaseClient.from('vendor').select('*').eq('VendorID', vendorIdParam)
-    ]);
-    if (rvErr) throw rvErr;
-    if (rfqErr) throw rfqErr;
-    if (venErr) throw venErr;
+    vendorToken = tokenGet();
+    if (vendorToken) {
+      const { data: sesi } = await supabaseClient.rpc('vendor_rfq_data', { p_token: vendorToken });
+      if (sesi && sesi.status === 'OK') { renderDariData(sesi.data); return; }
+      tokenSet(null); vendorToken = null;
+    }
 
-    const rv = (rvRows || [])[0];
-    if (!rv) {
+    const { data: info, error } = await supabaseClient.rpc('vendor_rfq_info', { p_rfqid: rfqIdParam, p_vendorid: vendorIdParam });
+    if (error) throw error;
+    if (!info || info.status !== 'OK') {
       showError("Link tidak valid atau data tidak ditemukan.");
       return;
     }
-
-    const rfqHeader = (rfqRows || [])[0];
-    const vendorInfo = (vendorRows || [])[0];
-
-    if (rv.ManagementApproval !== 'Approved' || rv.Status !== 'Approved') {
+    if (info.tahap === 'SUDAH_KONFIRMASI') { tampilkanSudahDiputuskan('Confirmed'); return; }
+    if (info.tahap === 'SUDAH_TOLAK') { tampilkanSudahDiputuskan('Rejected'); return; }
+    if (info.tahap !== 'PEMENANG') {
       showError("RFQ ini belum di-approve oleh Management, atau bukan Anda vendor yang terpilih.");
       return;
     }
-
-    if (rv.ConfirmationStatus === 'Confirmed') {
-      document.getElementById("app").innerHTML = `<div class="rfq-card" style="text-align:center;">
-        <div class="badge">Sudah Dikonfirmasi</div>
-        <p>Anda sudah mengonfirmasi kesediaan untuk RFQ ini sebelumnya. Terima kasih.</p>
-      </div>`;
-      return;
-    }
-    if (rv.ConfirmationStatus === 'Rejected') {
-      document.getElementById("app").innerHTML = `<div class="rfq-card" style="text-align:center;">
-        <p>Anda sebelumnya sudah menyatakan tidak dapat memenuhi RFQ ini.</p>
-      </div>`;
-      return;
-    }
-
-    if (rv.PIN) {
-      showPinGate(rfqHeader, vendorInfo, rv);
-    } else {
-      loadAndRenderDetail(rfqHeader, vendorInfo, rv);
-    }
+    showPinGate();
   } catch (err) {
     showError("Terjadi kendala memuat data: " + err.message + " Silakan muat ulang halaman.");
   }
 }
 
-function showPinGate(rfqHeader, vendorInfo, rv) {
+function showPinGate() {
   document.getElementById("app").innerHTML = `
     <div class="pin-card">
       <p>Masukkan PIN yang dikirimkan melalui email untuk melihat hasil seleksi vendor.</p>
@@ -184,55 +176,58 @@ function showPinGate(rfqHeader, vendorInfo, rv) {
     </div>
   `;
 
+  let sedangDicek = false;
   document.getElementById("pinSubmitBtn").addEventListener("click", checkPin);
   document.getElementById("pinInput").addEventListener("keypress", (e) => {
     if (e.key === "Enter") checkPin();
   });
 
-  function checkPin() {
-    const entered = document.getElementById("pinInput").value.trim();
-    if (entered === String(rv.PIN).trim()) {
-      loadAndRenderDetail(rfqHeader, vendorInfo, rv);
-    } else {
-      document.getElementById("pinError").style.display = "block";
+  async function checkPin() {
+    if (sedangDicek) return;
+    sedangDicek = true;
+    const errEl = document.getElementById("pinError");
+    try {
+      const entered = document.getElementById("pinInput").value.trim();
+      const { data: hasil, error } = await supabaseClient.rpc('vendor_rfq_masuk', { p_rfqid: rfqIdParam, p_vendorid: vendorIdParam, p_pin: entered });
+      if (error) throw error;
+      if (hasil && hasil.status === 'OK') {
+        vendorToken = hasil.token;
+        tokenSet(vendorToken);
+        renderDariData(hasil.data);
+        return;
+      }
+      let pesan = (hasil && hasil.message) || 'PIN salah. Periksa kembali email Anda.';
+      if (hasil && hasil.status === 'INVALID' && hasil.sisa != null) pesan += ` Sisa percobaan: ${hasil.sisa}.`;
+      errEl.textContent = pesan;
+      errEl.style.display = "block";
+    } catch (e) {
+      errEl.textContent = "Gagal memeriksa PIN: " + e.message;
+      errEl.style.display = "block";
+    } finally {
+      sedangDicek = false;
     }
   }
 }
 
-async function loadAndRenderDetail(rfqHeader, vendorInfo, rv) {
-  document.getElementById("app").innerHTML = "Memuat detail item...";
-  try {
-    const { data: detailRows, error: detErr } = await supabaseClient
-      .from('rfqDetail').select('*').eq('RFQID', rfqIdParam);
-    if (detErr) throw detErr;
-
-    const detailIds = (detailRows || []).map(d => String(d.RFQDetailID));
-    const { data: quoteRows, error: quoteErr } = await supabaseClient
-      .from('rfqQuote')
-      .select('*')
-      .eq('VendorID', String(vendorIdParam))
-      .eq('IsSelected', 'Yes')
-      .in('RFQDetailID', detailIds);
-    if (quoteErr) throw quoteErr;
-
-    const winningQuotes = quoteRows || [];
-    if (winningQuotes.length === 0) {
-      showError("Tidak ditemukan item yang dimenangkan untuk vendor ini pada RFQ tersebut.");
-      return;
-    }
-
-    const detailById = {};
-    (detailRows || []).forEach(d => { detailById[String(d.RFQDetailID)] = d; });
-
-    const { data: termRows, error: termErr } = await supabaseClient
-      .from('rfqVendorTerm').select('*').eq('RFQVendorID', rv.RFQVendorID);
-    if (termErr) throw termErr;
-    const term = (termRows || [])[0] || {};
-
-    renderDetail(rfqHeader, vendorInfo, rv, winningQuotes, detailById, term);
-  } catch (err) {
-    showError("Gagal memuat detail: " + err.message);
+// Data dari server (vendor_rfq_masuk / vendor_rfq_data) -- tanpa PIN.
+function renderDariData(data) {
+  const rv = data.rfqVendor || {};
+  if (rv.ConfirmationStatus === 'Confirmed' || rv.ConfirmationStatus === 'Rejected') {
+    tampilkanSudahDiputuskan(rv.ConfirmationStatus);
+    return;
   }
+  if (rv.ManagementApproval !== 'Approved' || rv.Status !== 'Approved') {
+    showError("RFQ ini belum di-approve oleh Management, atau bukan Anda vendor yang terpilih.");
+    return;
+  }
+  const winningQuotes = (data.quotes || []).filter(q => q.IsSelected === 'Yes');
+  if (winningQuotes.length === 0) {
+    showError("Tidak ditemukan item yang dimenangkan untuk vendor ini pada RFQ tersebut.");
+    return;
+  }
+  const detailById = {};
+  (data.items || []).forEach(d => { detailById[String(d.RFQDetailID)] = d; });
+  renderDetail(data.rfq || {}, data.vendor || {}, rv, winningQuotes, detailById, data.term || {});
 }
 
 function renderDetail(rfqHeader, vendorInfo, rv, winningQuotes, detailById, term) {
@@ -313,89 +308,16 @@ async function submitDecision(rv, decision, rfqHeader, vendorInfo, grandTotal, w
   btnReject.disabled = true;
 
   try {
-    const { error } = await supabaseClient.from('rfqVendor').update({
-      ConfirmationStatus: decision,
-      ConfirmationDate: new Date().toISOString(),
-      Notes: notes || null
-    }).eq('RFQVendorID', rv.RFQVendorID);
+    // Keputusan + draft PO lewat RPC: harga/total PO dihitung server dari penawaran yang
+    // tersimpan -- dulu TotalAmount & harga item dikirim dari browser vendor.
+    const { data: hasil, error } = await supabaseClient.rpc('vendor_rfq_konfirmasi', {
+      p_token: vendorToken || '', p_decision: decision, p_notes: notes || null
+    });
     if (error) throw error;
-
-    if (decision === 'Confirmed') {
-      await supabaseClient.from('rfq').update({ Status: 'Vendor Terkonfirmasi' }).eq('RFQID', rv.RFQID);
-    } else {
-      await supabaseClient.from('rfq').update({ Status: 'Vendor Menolak' }).eq('RFQID', rv.RFQID);
-    }
-
-    // Jika vendor mengonfirmasi kesediaan, otomatis generate Draft PO / SO
-    if (decision === 'Confirmed') {
-      try {
-        const { data: existingPo } = await supabaseClient
-          .from('purchaseOrder')
-          .select('POID')
-          .eq('RFQID', rv.RFQID)
-          .eq('VendorID', rv.VendorID)
-          .maybeSingle();
-
-        if (!existingPo) {
-          const { data: maxPo } = await supabaseClient
-            .from('purchaseOrder')
-            .select('POID')
-            .order('POID', { ascending: false })
-            .limit(1);
-          const nextPoNum = (maxPo && maxPo.length > 0 && maxPo[0].POID != null) ? (Number(maxPo[0].POID) || 0) + 1 : 1;
-
-          const isSO = (winningQuotes || []).some(q => {
-            const d = (detailById && detailById[String(q.RFQDetailID)]) || {};
-            return (d.ItemGroup || '').toLowerCase().includes('service') || (d.ItemDescription || '').toLowerCase().includes('jasa');
-          });
-          const docType = isSO ? 'SO' : 'PO';
-          const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-          const docNumber = `${docType}-${dateStr}-${String(nextPoNum).padStart(4, '0')}`;
-
-          const { data: insertedPo, error: poInsErr } = await supabaseClient
-            .from('purchaseOrder')
-            .insert({
-              RFQID: rv.RFQID,
-              RFQVendorID: rv.RFQVendorID,
-              VendorID: rv.VendorID,
-              DocType: docType,
-              DocNumber: docNumber,
-              TotalAmount: Number(grandTotal) || 0,
-              Status: 'Draft',
-              CreatedDate: new Date().toISOString(),
-              DeliveryPoint: rfqHeader ? rfqHeader.DeliveryPoint : null
-            })
-            .select('POID')
-            .single();
-
-          if (!poInsErr && insertedPo) {
-            const newPoId = insertedPo.POID;
-            const podItems = (winningQuotes || []).map(q => {
-              const d = (detailById && detailById[String(q.RFQDetailID)]) || {};
-              const qty = Number(q.Qty) || 0;
-              const unitPrice = Number(q.UnitPrice) || 0;
-              return {
-                POID: newPoId,
-                RFQDetailID: q.RFQDetailID,
-                ItemDescription: d.ItemDescription || '-',
-                Unit: d.Unit || '',
-                Qty: qty,
-                UnitPrice: unitPrice,
-                Subtotal: qty * unitPrice,
-                VendorDeliveryDate: q.VendorDeliveryDate || null,
-                ItemGroup: d.ItemGroup || null,
-                ItemID: d.ItemID || null
-              };
-            });
-
-            if (podItems.length > 0) {
-              await supabaseClient.from('purchaseOrderDetail').insert(podItems);
-            }
-          }
-        }
-      } catch (poGenErr) {
-        console.warn('Gagal generate draft PO:', poGenErr);
-      }
+    if (!hasil || hasil.status !== 'OK') {
+      if (hasil && hasil.status === 'SESSION_EXPIRED') { tokenSet(null); vendorToken = null; }
+      if (hasil && hasil.status === 'DONE') { tampilkanSudahDiputuskan(hasil.keputusan); return; }
+      throw new Error((hasil && hasil.message) || 'Konfirmasi gagal disimpan.');
     }
 
     // Kirim notifikasi email ke Admin Perusahaan (HO)
