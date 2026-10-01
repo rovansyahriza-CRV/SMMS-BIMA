@@ -812,10 +812,19 @@ function mbShowLogin(message) {
 async function mbResumeSession() {
   let saved = null;
   try { saved = JSON.parse(sessionStorage.getItem(MB_SESSION_KEY) || sessionStorage.getItem('bima_user') || 'null'); } catch (e) { saved = null; }
-  if (!saved || !saved.id) return mbShowLogin('');
+  // Sesi tanpa token (versi lama, sebelum login fusion_login) -> login ulang sekali.
+  const token = saved && (saved.sessionToken || saved.token);
+  if (!saved || !saved.id || !token) { sessionStorage.removeItem(MB_SESSION_KEY); return mbShowLogin(''); }
   try {
-    const { data } = await supabaseClient.from('paswordTbl').select('Author, pic, PIC').eq('Id', saved.id).maybeSingle();
-    if (data) { saved.Author = data.Author || ''; saved.PIC = data.PIC || data.pic || ''; }
+    const { data: sesi, error } = await supabaseClient.rpc('fusion_session_info', { p_token: token });
+    if (error) throw error;
+    if (!sesi || sesi.status !== 'OK') {
+      sessionStorage.removeItem(MB_SESSION_KEY);
+      return mbShowLogin((sesi && sesi.message) || 'Sesi habis, silakan login lagi.');
+    }
+    saved.Author = sesi.user.author || ''; saved.PIC = sesi.user.pic || '';
+    saved.sessionExpiresAt = sesi.expiresAt;
+    sessionStorage.setItem(MB_SESSION_KEY, JSON.stringify(saved));
   } catch (e) { /* offline: pakai data sesi */ }
   if (mbAllowed(saved)) mbShowContent(saved);
   else { sessionStorage.removeItem(MB_SESSION_KEY); mbShowLogin('Akun ini belum punya akses Monitoring Barang.'); }
@@ -860,12 +869,18 @@ document.getElementById('mbLoginForm').addEventListener('submit', async e => {
   if (!pw) { errEl.textContent = 'Isi password.'; return; }
   btn.disabled = true; btn.textContent = 'Memeriksa...';
   try {
-    const { data, error } = await supabaseClient.rpc('verify_login', { p_id: id, p_password: pw });
+    // fusion_login: salah 5x per akun dikunci 15 menit + token sesi 8 jam.
+    const { data, error } = await supabaseClient.rpc('fusion_login', { p_id: id, p_password: pw });
     if (error) throw error;
-    const row = data && data[0];
-    if (!row) { errEl.textContent = 'Nama atau password salah.'; return; }
-    const user = { id: row.id, nama: row.nama, kualifikasi: row.kualifikasi, Author: row.author || '', PIC: row.pic || '' };
-    if (!mbAllowed(user)) { errEl.textContent = 'Akun ini belum punya akses Monitoring Barang. Hubungi admin.'; return; }
+    if (data && data.error) { errEl.textContent = data.error; return; }
+    const row = data && data.user;
+    if (!row || !data.token) { errEl.textContent = 'Nama atau password salah.'; return; }
+    const user = { id: row.id, nama: row.nama, kualifikasi: row.kualifikasi, Author: row.author || '', PIC: row.pic || '',
+                   sessionToken: data.token, sessionExpiresAt: data.expiresAt };
+    if (!mbAllowed(user)) {
+      supabaseClient.rpc('fusion_logout', { p_token: data.token }).then(() => {}, () => {});
+      errEl.textContent = 'Akun ini belum punya akses Monitoring Barang. Hubungi admin.'; return;
+    }
     sessionStorage.setItem(MB_SESSION_KEY, JSON.stringify(user));
     document.getElementById('mbLoginPassword').value = '';
     mbShowContent(user);
@@ -874,6 +889,10 @@ document.getElementById('mbLoginForm').addEventListener('submit', async e => {
   } finally { btn.disabled = false; btn.textContent = 'Masuk'; }
 });
 document.getElementById('mbLogout').addEventListener('click', () => {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(MB_SESSION_KEY) || 'null');
+    if (s && s.sessionToken) supabaseClient.rpc('fusion_logout', { p_token: s.sessionToken }).then(() => {}, () => {});
+  } catch (e) {}
   sessionStorage.removeItem(MB_SESSION_KEY);
   mbShowLogin('Sudah keluar.');
 });

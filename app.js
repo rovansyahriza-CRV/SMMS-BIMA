@@ -89,18 +89,35 @@ async function initAuthSession() {
   const savedUser = sessionStorage.getItem('bima_user');
   if (savedUser) {
     currentUser = JSON.parse(savedUser);
+
+    // Sesi lama (sebelum login pakai token) -> wajib login ulang sekali.
+    if (!currentUser || !currentUser.sessionToken) {
+      sessionStorage.removeItem('bima_user');
+      currentUser = null;
+      updateUIAuth();
+      setupLoginSearch();
+      showToast('Silakan login ulang (pembaruan keamanan).', 'info');
+      return;
+    }
     updateUIAuth();
 
-    // Auto-sync Author & PIC dari database paswordTbl tiap load page,
-    // sehingga perubahan di Fusion4 langsung aktif seketika saat refresh tanpa perlu logout.
+    // Cek sesi ke server tiap load page (sekalian diperpanjang 8 jam) + ambil Author & PIC
+    // terbaru, sehingga perubahan di Fusion4 langsung aktif seketika saat refresh tanpa perlu logout.
     try {
-      const { data: pasRow } = await supabaseClient
-        .from('paswordTbl')
-        .select('Author, pic')
-        .eq('Id', currentUser.id)
-        .maybeSingle();
+      const { data: sesi, error: sesiErr } = await supabaseClient.rpc('fusion_session_info', { p_token: currentUser.sessionToken });
+      if (sesiErr) throw sesiErr;
+      if (!sesi || sesi.status !== 'OK') {
+        sessionStorage.removeItem('bima_user');
+        currentUser = null;
+        updateUIAuth();
+        setupLoginSearch();
+        showToast((sesi && sesi.message) || 'Sesi habis, silakan login lagi.', 'error');
+        return;
+      }
+      const pasRow = sesi.user;
       if (pasRow) {
-        currentUser.Author = pasRow.Author || '';
+        currentUser.sessionExpiresAt = sesi.expiresAt;
+        currentUser.Author = pasRow.author || '';
         currentUser.PIC = pasRow.pic || '';
         const picList = (currentUser.PIC || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
         const authorStr = (currentUser.Author || '').toLowerCase();
@@ -141,14 +158,21 @@ async function initAuthSession() {
 // Fungsi Login (bisa dipanggil dari Form Login)
 async function loginUser(idKaryawan, password) {
   try {
-    const { data, error } = await supabaseClient.rpc('verify_login', {
+    // fusion_login (sama dengan admin Fusion4): salah 5x per akun dikunci 15 menit,
+    // dan server ngasih token sesi 8 jam -- RPC berikutnya bisa cek siapa yang manggil.
+    const { data, error } = await supabaseClient.rpc('fusion_login', {
       p_id: idKaryawan,
       p_password: password
     });
     if (error) throw error;
 
-    if (data && data.length > 0) {
-      const userRow = data[0];                    // <-- ditambahin
+    if (data && data.error) {
+      showToast("Login Gagal: " + data.error, 'error');
+      return false;
+    }
+
+    if (data && data.user && data.token) {
+      const userRow = data.user;
       const authorStr = userRow.author || '';
       const picStr = userRow.pic || '';
       const picList = picStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -160,7 +184,9 @@ async function loginUser(idKaryawan, password) {
         kualifikasi: userRow.kualifikasi,
         Author: authorStr,
         PIC: picStr,
-        canInputMaster: isAllAdmin || picList.includes('input master resources') || picList.includes('mr')
+        canInputMaster: isAllAdmin || picList.includes('input master resources') || picList.includes('mr'),
+        sessionToken: data.token,
+        sessionExpiresAt: data.expiresAt
       };
 
       // Ambil QrCodeId terpisah dari karyawanTbl -- dipakai buat QR tanda tangan digital di
@@ -197,6 +223,8 @@ async function loginUser(idKaryawan, password) {
 
 // Logout User
 function logoutUser() {
+  const token = currentUser && currentUser.sessionToken;
+  if (token) supabaseClient.rpc('fusion_logout', { p_token: token }).then(() => {}, () => {});
   sessionStorage.removeItem('bima_user');
   currentUser = null;
   //alert("Anda telah keluar.");
