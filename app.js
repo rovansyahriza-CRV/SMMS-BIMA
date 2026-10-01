@@ -869,49 +869,8 @@ document.getElementById('reqItemSpec')?.addEventListener('input', function(e) {
 });
 
 // Handler Simpan Request Material
-async function handleSaveRequest(e) {
-  e.preventDefault();
-  const pickerError = validateRequestProjectWo();
-  if (pickerError) { alert(pickerError); return; }
-  const btn = document.getElementById('btnSubmitRequest');
-  btn.textContent = 'Sending Request...';
-  btn.disabled = true;
-
-  const refNo = document.getElementById('reqRefNo').value.trim() || generateRefNo();
-
-  const payload = {
-    DATE_REQUEST: new Date().toISOString().split('T')[0],
-    PROJECTID: document.getElementById('reqProjectID').value,
-    WO_NO: document.getElementById('reqWoNo').value,
-    ItemDescription: document.getElementById('reqItemSpec').value,
-    QTY: document.getElementById('reqQty').value,
-    UNIT: document.getElementById('reqUnit').value,
-    Duration: document.getElementById('reqDuration')?.value ? Number(document.getElementById('reqDuration').value) : null,
-    DurUnit: document.getElementById('reqDurationUnit') ? document.getElementById('reqDurationUnit').value : '',
-    ItemGroup: document.getElementById('reqItemGroup').value,
-    Purpose: document.getElementById('reqPurpose').value,
-    RefNo: refNo,
-    ExpectedDate: document.getElementById('reqExpectedDate').value,
-    ...getReqAllocation(),
-    Status: 'Pending',
-    RequestBy: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.nama : 'dummy_user'
-  };
-
-  try {
-    const { error } = await supabaseClient.from('request').insert([payload]);
-    if (error) throw error;
-
-    alert("Request Material berhasil dikirim!");
-    document.getElementById('formRequest').reset();
-    loadRequestTableData();
-  } catch (error) {
-    console.error("Submit Error:", error);
-    alert("Gagal mengirim request: " + error.message);
-  } finally {
-    btn.textContent = 'Kirim Request Material';
-    btn.disabled = false;
-  }
-}
+// handleSaveRequest (form 1 item, versi lama) dihapus 2026-10-02: tidak dipanggil dari mana pun
+// (form aktif = handleBatchSubmitRequest) dan masih menulis langsung ke tabel request.
 
 async function loadRequestTableData() {
   const tbody = document.getElementById('tabelRequest');
@@ -1336,22 +1295,32 @@ async function handleBatchSubmitRequest(e) {
   });
 
   try {
-    // tepat setelah dapat generatedRefNo, SEBELUM insert ke tabel request:
-    const { data: refData, error: refError } = await supabaseClient.rpc('generate_refno');
-    if (refError) throw refError;
-    const generatedRefNo = refData;
-
-    const { error: approvalError } = await supabaseClient.from('request_approval').insert({
-      RefNo: generatedRefNo,
-      ProjectID: headerData.projectId,
-      Area: headerData.area || null,
-      CurrentLevel: 'Review'
+    // Simpan lewat RPC request_buat (sesi login dicek server). RefNo, status awal
+    // "Menunggu Review" & RequestBy ditentukan server -- bukan dari browser.
+    const { data: hasilBuat, error: buatErr } = await supabaseClient.rpc('request_buat', {
+      p_token: (currentUser && currentUser.sessionToken) || '',
+      p_header: {
+        projectId: headerData.projectId,
+        area: headerData.area || '',
+        woNo: headerData.woNo,
+        purpose: headerData.purpose,
+        expectedDate: headerData.expectedDate,
+        woId: allocation.WoID || null,
+        costType: allocation.CostType || null,
+        costFunction: allocation.CostFunction || null,
+        photoUrls: photoUrls.length > 0 ? photoUrls : null
+      },
+      p_items: itemsPayload.map(it => ({
+        ItemGroup: it.ItemGroup, ItemID: it.ItemID, ItemDescription: it.ItemDescription,
+        QTY: it.QTY, UNIT: it.UNIT, Duration: it.Duration, DurUnit: it.DurUnit
+      }))
     });
-    if (approvalError) throw approvalError;
-
-    const payloadToInsert = itemsPayload.map(item => ({ ...item, RefNo: generatedRefNo }));
-    const { error } = await supabaseClient.from('request').insert(payloadToInsert);
-    if (error) throw error;
+    if (buatErr) throw buatErr;
+    if (!hasilBuat || hasilBuat.status !== 'OK') {
+      // Sesi habis: jangan logout otomatis (isian form bisa hilang) -- cukup kasih tahu.
+      throw new Error((hasilBuat && hasilBuat.message) || 'Request gagal disimpan.');
+    }
+    const generatedRefNo = hasilBuat.refNo;
 
     // Generate & upload report PDF -- sama persis alurnya kayak versi web (script.js), dibungkus
     // try/catch sendiri: kalau ini gagal, request-nya TETAP TERKIRIM (udah di-insert di atas),
@@ -1375,7 +1344,7 @@ async function handleBatchSubmitRequest(e) {
       });
       const pdfBlob = reportPdfToBlob(pdfDoc);
       const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `REQ_${generatedRefNo.replace(/\//g, '-')}.pdf`);
-      await supabaseClient.from('request').update({ ReportURL: buildDriveViewUrl(uploadedPdf), ReportFileID: uploadedPdf.fileId }).eq('RefNo', generatedRefNo);
+      await supabaseClient.rpc('request_set_report', { p_refno: generatedRefNo, p_file_id: uploadedPdf.fileId });
     } catch (reportErr) {
       console.warn('Gagal membuat/upload report PDF:', reportErr);
     }
@@ -2103,49 +2072,24 @@ async function loadApprovalList() {
   }
 }
 
+// Review/approve/tolak lewat RPC request_proses: sesi login + wewenang (RR/AR per proyek,
+// sama dengan aturan tombol di daftar approval) dicek di server. Dulu kalau RPC menolak,
+// browser fallback nulis langsung ke tabel -- jadi aturan wewenangnya gak pernah berlaku.
+async function prosesRequestApproval(refno, decision, reason) {
+  const { data, error } = await supabaseClient.rpc('request_proses', {
+    p_token: (currentUser && currentUser.sessionToken) || '',
+    p_refno: refno, p_decision: decision, p_reason: reason || null
+  });
+  if (error) throw error;
+  if (!data || data.status !== 'OK') throw new Error((data && data.message) || 'Gagal memproses request.');
+  return data;
+}
+
 async function approveRequest(refno) {
   if (!confirm(`Setujui Request ${refno}?`)) return;
   try {
-    let rpcSuccess = false;
-    let isReviewLevel = false;
-
-    const { data: currAppr } = await supabaseClient.from('request_approval').select('*').eq('RefNo', refno).maybeSingle();
-    if (!currAppr) throw new Error('Data request approval tidak ditemukan.');
-    isReviewLevel = String(currAppr.CurrentLevel || '').toLowerCase() === 'review';
-
-    try {
-      const { error: rpcErr } = await supabaseClient.rpc('process_approval', {
-        p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Approve', p_reason: null
-      });
-      if (!rpcErr) rpcSuccess = true;
-    } catch (e) {
-      console.warn('RPC process_approval fallback to direct table update:', e);
-    }
-
-    if (!rpcSuccess) {
-      if (isReviewLevel) {
-        await supabaseClient.from('request_approval').update({
-          CurrentLevel: 'Approval',
-          ReviewedBy: String(currentUser.id),
-          ReviewedAt: new Date().toISOString()
-        }).eq('RefNo', refno);
-        await supabaseClient.from('request').update({
-          Status: 'Menunggu Approval Direktur'
-        }).eq('RefNo', refno);
-      } else {
-        await supabaseClient.from('request_approval').update({
-          CurrentLevel: 'Approved',
-          ApprovedBy: String(currentUser.id),
-          ApprovedAt: new Date().toISOString()
-        }).eq('RefNo', refno);
-        await supabaseClient.from('request').update({
-          Status: 'Disetujui'
-        }).eq('RefNo', refno);
-      }
-    }
-
-    const nextStatus = isReviewLevel ? 'Menunggu Approval Direktur' : 'Disetujui';
-    refreshRequestReportPdf(refno, nextStatus).catch(e => console.warn('Gagal refresh PDF request report:', e));
+    const hasil = await prosesRequestApproval(refno, 'Approve', null);
+    refreshRequestReportPdf(refno, hasil.statusRequest).catch(e => console.warn('Gagal refresh PDF request report:', e));
 
     showToast(`Request ${refno} berhasil disetujui!`, 'success');
     loadApprovalList();
@@ -2162,27 +2106,7 @@ async function rejectRequest(refno) {
     return;
   }
   try {
-    let rpcSuccess = false;
-    try {
-      const { error: rpcErr } = await supabaseClient.rpc('process_approval', {
-        p_refno: refno, p_karyawan_id: currentUser.id, p_decision: 'Reject', p_reason: reason
-      });
-      if (!rpcErr) rpcSuccess = true;
-    } catch (e) {
-      console.warn('RPC process_approval fallback to direct table update:', e);
-    }
-
-    if (!rpcSuccess) {
-      await supabaseClient.from('request_approval').update({
-        CurrentLevel: 'Rejected',
-        RejectedBy: String(currentUser.id),
-        RejectedAt: new Date().toISOString(),
-        RejectReason: reason
-      }).eq('RefNo', refno);
-      await supabaseClient.from('request').update({
-        Status: 'Ditolak'
-      }).eq('RefNo', refno);
-    }
+    await prosesRequestApproval(refno, 'Reject', reason);
 
     refreshRequestReportPdf(refno, 'Ditolak').catch(e => console.warn('Gagal refresh PDF request report:', e));
 
@@ -2742,7 +2666,7 @@ async function submitRFQ() {
       await supabaseClient.from('rfq').update({ ReportURL: buildDriveViewUrl(uploadedRfqPdf), ReportFileID: uploadedRfqPdf.fileId, Status: 'Menunggu Penawaran Vendor' }).eq('RFQID', rfqIdForReport);
 
       // Update status item request terkait menjadi 'Dalam Proses RFQ' dan refresh PDF-nya
-      await supabaseClient.from('request').update({ Status: 'Dalam Proses RFQ' }).in('ID', requestIds);
+      await supabaseClient.rpc('request_sinkron_status', { p_refnos: null }); // status dihitung server dari data (S2)
       const affectedRefNos = [...new Set((reqRowsForReport || []).map(r => r.RefNo).filter(Boolean))];
       for (const rNo of affectedRefNos) {
         refreshRequestReportPdf(rNo, 'Dalam Proses RFQ').catch(e => console.warn('Refresh request report on RFQ creation failed:', e));
@@ -4060,7 +3984,7 @@ async function approvePo(poId) {
         const { data: rfqDetails } = await supabaseClient.from('rfqDetail').select('RequestID').eq('RFQID', poRow.RFQID);
         const reqIds = [...new Set((rfqDetails || []).map(d => d.RequestID).filter(Boolean))];
         if (reqIds.length > 0) {
-          await supabaseClient.from('request').update({ Status: 'PO Diterbitkan' }).in('ID', reqIds);
+          await supabaseClient.rpc('request_sinkron_status', { p_refnos: null }); // status dihitung server dari data (S2)
           const { data: reqRows } = await supabaseClient.from('request').select('RefNo').in('ID', reqIds);
           const affectedRefNos = [...new Set((reqRows || []).map(r => r.RefNo).filter(Boolean))];
           for (const rNo of affectedRefNos) {

@@ -1200,7 +1200,7 @@ async function showPendingDeliveries(projCode) {
                 return refNoForPODetail(podetailId);
               }).filter(Boolean))];
               if (receivedRefNos.length > 0) {
-                await supabaseClient.from('request').update({ Status: 'Barang Diterima di Site' }).in('RefNo', receivedRefNos);
+                await supabaseClient.rpc('request_sinkron_status', { p_refnos: null }); // status dihitung server dari data (S2)
                 for (const rNo of receivedRefNos) {
                   if (typeof refreshRequestReportPdf === 'function') {
                     refreshRequestReportPdf(rNo, 'Barang Diterima di Site').catch(e => console.warn('Refresh request report on site receiving failed:', e));

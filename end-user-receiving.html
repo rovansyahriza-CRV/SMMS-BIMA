@@ -1226,7 +1226,7 @@ async function submitHandover() {
                 const { data: rfqDetRows } = await supabaseClient.from('rfqDetail').select('RequestID').in('RFQDetailID', rfqDetIds);
                 const reqIds = [...new Set((rfqDetRows || []).map(r => r.RequestID).filter(Boolean))];
                 if (reqIds.length > 0) {
-                  await supabaseClient.from('request').update({ Status: 'Selesai (Diterima End User)' }).in('ID', reqIds);
+                  await supabaseClient.rpc('request_sinkron_status', { p_refnos: null }); // status dihitung server dari data (S2)
                   const { data: reqRows } = await supabaseClient.from('request').select('RefNo').in('ID', reqIds);
                   const affectedRefNos = [...new Set((reqRows || []).map(r => r.RefNo).filter(Boolean))];
                   for (const rNo of affectedRefNos) {
