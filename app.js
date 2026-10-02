@@ -1915,10 +1915,7 @@ async function regeneratePoReport(poId, btnEl) {
       );
       if (uploaded && uploaded.fileId) {
         directUrl = buildDriveViewUrl(uploaded);
-        await supabaseClient
-          .from('purchaseOrder')
-          .update({ ReportURL: directUrl, ReportFileID: uploaded.fileId })
-          .eq('POID', poid);
+        await poRpc('po_set_report', { p_poid: Number(poid), p_file_id: uploaded.fileId });
       }
     } catch (eDrive) {
       console.warn('Upload Drive error:', eDrive);
@@ -3696,6 +3693,14 @@ async function loadPoSubmitPage() {
   }
 }
 
+// PO/SO lewat RPC (S4): sesi login + tag dicek server. Tabel purchaseOrder terkunci untuk tulis langsung.
+async function poRpc(fn, params) {
+  const { data, error } = await supabaseClient.rpc(fn, Object.assign({ p_token: (currentUser && currentUser.sessionToken) || '' }, params));
+  if (error) throw error;
+  if (!data || data.status !== 'OK') throw new Error((data && data.message) || 'Gagal memproses PO/SO.');
+  return data;
+}
+
 async function submitPoForApproval() {
   if (selectedPoIds.size === 0) {
     showToast('Pilih minimal 1 PO/SO dulu.', 'error');
@@ -3704,15 +3709,7 @@ async function submitPoForApproval() {
   if (!confirm(`Ajukan ${selectedPoIds.size} PO/SO untuk approval Management?`)) return;
 
   try {
-    const { error } = await supabaseClient
-      .from('purchaseOrder')
-      .update({
-        Status: 'Menunggu Approval',
-        SubmittedBy: currentUser?.nama || currentUser?.Username || 'System',
-        SubmittedDate: new Date().toISOString()
-      })
-      .in('POID', Array.from(selectedPoIds));
-    if (error) throw error;
+    await poRpc('po_ajukan', { p_poids: Array.from(selectedPoIds).map(Number) });
 
     showToast('PO/SO berhasil diajukan untuk approval.', 'success');
     loadPoSubmitPage();
@@ -3776,17 +3773,7 @@ async function loadApprovalPoPage() {
 async function approvePo(poId) {
   if (!confirm('Approve PO/SO ini?')) return;
   try {
-    const approverName = currentUser?.nama || currentUser?.Username || 'Direktur';
-    const { error } = await supabaseClient
-      .from('purchaseOrder')
-      .update({
-        Status: 'Approved',
-        ManagementApproval: 'Approved',
-        ManagementApprovalBy: approverName,
-        ManagementApprovalDate: new Date().toISOString()
-      })
-      .eq('POID', poId);
-    if (error) throw error;
+    await poRpc('po_proses', { p_poid: Number(poId), p_decision: 'Approve', p_reason: null });
 
     // Update status RFQ dan Request terkait menjadi 'PO Diterbitkan' serta refresh PDF Request
     try {
@@ -3821,17 +3808,7 @@ async function rejectPo(poId) {
   const reason = prompt('Alasan penolakan (opsional):') || null;
   if (!confirm('Tolak PO/SO ini?')) return;
   try {
-    const { error } = await supabaseClient
-      .from('purchaseOrder')
-      .update({
-        Status: 'Ditolak Management',
-        ManagementApproval: 'Rejected',
-        ManagementApprovalBy: currentUser?.nama || currentUser?.Username || 'System',
-        ManagementApprovalDate: new Date().toISOString(),
-        Notes: reason
-      })
-      .eq('POID', poId);
-    if (error) throw error;
+    await poRpc('po_proses', { p_poid: Number(poId), p_decision: 'Reject', p_reason: reason });
     showToast('PO/SO berhasil ditolak.', 'success');
     loadApprovalPoPage();
   } catch (err) {
@@ -4021,7 +3998,7 @@ async function submitVendorReceivingBatch(poId) {
 // tidak memuat ulang file). version.json dicek tiap 5 menit & saat tab aktif lagi; kalau beda
 // dengan versi kode yang sedang jalan -> tawarkan muat ulang.
 // Setiap update SMMS: samakan SMMS_VERSI, version.json, dan ?v= di index.html.
-const SMMS_VERSI = '2026-10-02.2';
+const SMMS_VERSI = '2026-10-02.3';
 (function () {
   let sudahTampil = false;
   function tampilkanPemberitahuan() {

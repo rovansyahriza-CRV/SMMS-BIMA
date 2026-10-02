@@ -433,10 +433,12 @@ async function sendPoApprovalEmailDesktop(poId) {
       'application/pdf',
       pdfBlob
     );
-    await supabaseClient
-      .from('purchaseOrder')
-      .update({ ReportURL: buildDriveViewUrl(uploadedPoPdf), ReportFileID: uploadedPoPdf.fileId })
-      .eq('POID', poid);
+    // Lewat po_set_report (S4): tabel purchaseOrder terkunci untuk tulis langsung.
+    const { data: hasilReport, error: errReport } = await supabaseClient.rpc('po_set_report', {
+      p_token: (typeof currentUser !== 'undefined' && currentUser && currentUser.sessionToken) || '',
+      p_poid: Number(poid), p_file_id: uploadedPoPdf.fileId
+    });
+    if (errReport || !hasilReport || hasilReport.status !== 'OK') throw new Error((errReport && errReport.message) || (hasilReport && hasilReport.message) || 'Gagal simpan link PDF');
   } catch (reportErr) {
     console.warn('Gagal upload/simpan report PDF PO/SO ke Drive:', reportErr);
   }
@@ -463,5 +465,7 @@ async function sendPoApprovalEmailDesktop(poId) {
   const result = await res.json();
   if (!result.success) throw new Error(result.error || "Gagal mengirim PDF PO/SO");
 
-  await supabaseClient.from('purchaseOrder').update({ SentDate: new Date().toISOString() }).eq('POID', poid);
+  await supabaseClient.rpc('po_tandai_terkirim', {
+    p_token: (typeof currentUser !== 'undefined' && currentUser && currentUser.sessionToken) || '', p_poid: Number(poid)
+  });
 }
