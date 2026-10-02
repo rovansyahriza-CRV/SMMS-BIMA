@@ -4015,3 +4015,41 @@ async function submitVendorReceivingBatch(poId) {
     showToast('Gagal menyimpan: ' + err.message, 'error');
   }
 }
+
+// ============ CEK VERSI BARU ============
+// Tab SMMS yang sudah terbuka sebelum ada update tetap menjalankan kode lama (logout/login
+// tidak memuat ulang file). version.json dicek tiap 5 menit & saat tab aktif lagi; kalau beda
+// dengan versi kode yang sedang jalan -> tawarkan muat ulang.
+// Setiap update SMMS: samakan SMMS_VERSI, version.json, dan ?v= di index.html.
+const SMMS_VERSI = '2026-10-02.2';
+(function () {
+  let sudahTampil = false;
+  function tampilkanPemberitahuan() {
+    if (sudahTampil || !document.body) return;
+    sudahTampil = true;
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;left:16px;right:16px;bottom:20px;margin:0 auto;max-width:520px;z-index:99999;background:#1f2937;color:#fff;' +
+      'padding:12px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);font:600 14px Inter,sans-serif;' +
+      'display:flex;gap:12px;align-items:center;justify-content:space-between;box-sizing:border-box;';
+    const teks = document.createElement('span');
+    teks.textContent = '🔄 Ada versi baru SMMS. Muat ulang supaya fitur terbaru dipakai.';
+    const btn = document.createElement('button');
+    btn.textContent = 'Muat ulang';
+    btn.style.cssText = 'background:#E8562C;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;white-space:nowrap;';
+    btn.onclick = () => location.reload();
+    bar.appendChild(teks);
+    bar.appendChild(btn);
+    document.body.appendChild(bar);
+  }
+  async function cekVersi() {
+    try {
+      const res = await fetch('version.json?nc=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.versi && data.versi !== SMMS_VERSI) tampilkanPemberitahuan();
+    } catch (e) { /* offline / gagal: coba lagi nanti */ }
+  }
+  setTimeout(cekVersi, 5000);
+  setInterval(cekVersi, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') cekVersi(); });
+})();
