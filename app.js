@@ -739,6 +739,23 @@ let currentMasterItemsCache = [];
 
 const masterItemsCacheByGroup = {};
 
+// Material & Consumables bukan sewa: kolom Durasi & Sat. Durasi dikosongkan dan dikunci.
+// (Durasi > 0 dipakai server untuk menandai Service Order; request_buat juga mengosongkannya.)
+const GROUP_TANPA_DURASI = ['Material', 'Consumables'];
+function grupTanpaDurasi(group) { return GROUP_TANPA_DURASI.includes(group || 'Material'); }
+function aturDurasiSesuaiGroup(tr) {
+  const group = tr.querySelector('.row-group')?.value;
+  const kunci = grupTanpaDurasi(group);
+  [tr.querySelector('.row-duration'), tr.querySelector('.row-durunit')].forEach(el => {
+    if (!el) return;
+    if (kunci) el.value = '';
+    el.disabled = kunci;
+    el.style.background = kunci ? '#F2EFEB' : '#fff';
+    el.style.cursor = kunci ? 'not-allowed' : '';
+    el.title = kunci ? 'Tidak dipakai untuk ' + group + ' (bukan sewa)' : '';
+  });
+}
+
 function addRequestRow() {
   const tbody = document.getElementById('datasheetBody');
   if (!tbody) return;
@@ -778,6 +795,7 @@ function addRequestRow() {
     </td>
   `;
   tbody.appendChild(tr);
+  aturDurasiSesuaiGroup(tr);
   loadItemOptionsForRow(tr.querySelector('.row-group'));
 }
 
@@ -790,6 +808,7 @@ async function loadItemOptionsForRow(selectEl) {
   const group = selectEl.value;
   datalist.innerHTML = '';
   if (specInput) specInput.value = '';
+  aturDurasiSesuaiGroup(tr);
 
   // #5 - loadItemOptionsForRow (ganti bagian try-nya)
   try {
@@ -1274,7 +1293,8 @@ async function handleBatchSubmitRequest(e) {
   }
   const itemsPayload = [];
   rows.forEach(tr => {
-    const durationVal = tr.querySelector('.row-duration')?.value;
+    const tanpaDurasi = grupTanpaDurasi(tr.querySelector('.row-group')?.value);
+    const durationVal = tanpaDurasi ? '' : tr.querySelector('.row-duration')?.value;
     const matchedItem = findMatchedCatalogItem(tr);   // <-- baris baru
     itemsPayload.push({
       DATE_REQUEST: new Date().toISOString().split('T')[0],
@@ -1288,7 +1308,7 @@ async function handleBatchSubmitRequest(e) {
       QTY: tr.querySelector('.row-qty')?.value || 0,
       UNIT: tr.querySelector('.row-unit')?.value || '',
       Duration: durationVal ? Number(durationVal) : null,
-      DurUnit: tr.querySelector('.row-durunit')?.value || '',
+      DurUnit: tanpaDurasi ? '' : (tr.querySelector('.row-durunit')?.value || ''),
       Purpose: headerData.purpose,
       ExpectedDate: headerData.expectedDate,
       ...allocation,
@@ -4005,7 +4025,7 @@ async function submitVendorReceivingBatch(poId) {
 // tidak memuat ulang file). version.json dicek tiap 5 menit & saat tab aktif lagi; kalau beda
 // dengan versi kode yang sedang jalan -> tawarkan muat ulang.
 // Setiap update SMMS: samakan SMMS_VERSI, version.json, dan ?v= di index.html.
-const SMMS_VERSI = '2026-10-02.4';
+const SMMS_VERSI = '2026-10-02.5';
 (function () {
   let sudahTampil = false;
   function tampilkanPemberitahuan() {
