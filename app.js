@@ -614,14 +614,14 @@ document.getElementById('formStok')?.addEventListener('submit', async function(e
       };
 
       try {
-        const tableName = RESOURCE_TABLE_MAP[activeSheet];
-        let error;
-        if (isEditMode) {
-          ({ error } = await supabaseClient.from(tableName).update(itemData).eq('ID', editId));
-        } else {
-          ({ error } = await supabaseClient.from(tableName).insert(itemData));
-        }
+        // Lewat resource_simpan: sesi login + hak MR dicek server (tabel master terkunci untuk tulis langsung).
+        const { data: hasil, error } = await supabaseClient.rpc('resource_simpan', {
+          p_token: currentUser.sessionToken || '', p_kategori: activeSheet,
+          p_id: isEditMode ? Number(editId) : null,
+          p_group: itemData.Group, p_spec: itemData.Specification, p_size: itemData.Size, p_unit: itemData.Unit
+        });
         if (error) throw error;
+        if (!hasil || hasil.status !== 'OK') throw new Error((hasil && hasil.message) || 'Gagal menyimpan data.');
 
         showToast(`Data ${activeSheet} berhasil disimpan!`, 'success');
         resetForm();
@@ -675,9 +675,11 @@ async function deleteItem(id) {
   if (!confirm(`Apakah Anda yakin ingin menghapus data dengan ID ${id} dari ${activeSheet}?`)) return;
 
   try {
-    const tableName = RESOURCE_TABLE_MAP[activeSheet];
-    const { error } = await supabaseClient.from(tableName).delete().eq('ID', id);
+    const { data: hasil, error } = await supabaseClient.rpc('resource_hapus', {
+      p_token: currentUser.sessionToken || '', p_kategori: activeSheet, p_id: Number(id)
+    });
     if (error) throw error;
+    if (!hasil || hasil.status !== 'OK') throw new Error((hasil && hasil.message) || 'Gagal menghapus data.');
 
     loadCategoryData();
   } catch (error) {
