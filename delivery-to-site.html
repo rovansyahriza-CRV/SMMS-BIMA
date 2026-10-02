@@ -9,8 +9,9 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="driveBridge.js?v=2026-10-02.3"></script>
-<script src="reportPdf.js?v=2026-10-02.3"></script>
+<script src="driveBridge.js?v=2026-10-02.4"></script>
+<script src="reportPdf.js?v=2026-10-02.4"></script>
+<script src="sesi-badge.js?v=2026-10-02.4"></script>
 <style>
   :root {
     --bg:#ECEEF1; --surface:#FFFFFF; --surface-2:#F5F6F8;
@@ -572,6 +573,12 @@ function finalizeVerification() {
 
 // ============ 5. Cek Author (dari paswordTbl, lewat RPC) buat nentuin role + project OTOMATIS ============
 async function resolveAccessAndProceed() {
+  // Wajib sesi Badge milik petugas ini (dari Badge: otomatis; dibuka langsung: minta PIN) -- S5.
+  if (!(await pastikanSesiBadge(qrCodeId, verifiedNama))) {
+    showBanner(resultBanner, "🔴 Dibatalkan: PIN Badge petugas belum dimasukkan.", "fail");
+    showRetry();
+    return;
+  }
   setStatus("Mengecek hak akses...", "info");
   statusEl.style.display = "block";
   try {
@@ -892,23 +899,13 @@ document.getElementById('btnSubmitDispatch').onclick = async () => {
 
   document.getElementById('btnSubmitDispatch').disabled = true;
   try {
-    const { data: docData, error: docError } = await supabaseClient.rpc('generate_surat_jalan_no');
-    if (docError) throw docError;
-    const suratJalanNo = docData;
-
-    const payload = itemsToSubmit.map(it => ({
-      POID: Number(poId),
-      PODetailID: it.podetailId,
-      QtyDelivered: it.qty,
-      PengirimBy: verifiedId,
-      DeliveredBy: null,
-      DestinationSite: destSite,
-      SuratJalanNo: suratJalanNo,
-      Notes: notes
-    }));
-
-    const { error } = await supabaseClient.from('delivery').insert(payload);
-    if (error) throw error;
+    // Lewat kirim_barang (S5): sesi Badge + tag "Pengirim barang <proyek>" + sisa siap kirim dicek server.
+    const { data: hasilKirim, error: errKirim } = await supabaseClient.rpc('kirim_barang', {
+      p_token: sesiBadgeToken(), p_poid: Number(poId), p_tujuan: destSite, p_notes: notes,
+      p_items: itemsToSubmit.map(it => ({ podetailId: it.podetailId, qty: it.qty }))
+    });
+    const suratJalanNo = cekHasilS5(hasilKirim, errKirim).suratJalanNo;
+    const payload = itemsToSubmit;
     document.getElementById('dispatchCard').style.display = "none";
     showBanner(resultBanner, `✅ Pengiriman berhasil disimpan (${payload.length} item) ke ${destSite}.<br>No. Surat Jalan: <strong>${suratJalanNo}</strong> — simpan nomor ini, penerima akan pakai nomor ini di site.<br>Pengirim: ${verifiedNama}.`, "ok");
   } catch (e) {
@@ -1108,44 +1105,28 @@ async function showPendingDeliveries(projCode) {
           });
           if (payload.length === 0) { showBanner(resultBanner, "🔴 Isi minimal 1 qty yang diterima.", "fail"); btn.disabled = false; btn.textContent = "Simpan Penerimaan"; return; }
 
-          // No Transaksi -- satu nomor buat seluruh baris dalam transaksi (1x scan/submit) ini
-          const { data: noTrx, error: noTrxErr } = await supabaseClient.rpc('generate_no_transaksi_sr');
-          if (noTrxErr) throw noTrxErr;
-
           // Foto opsional -- kalau diisi, dikompres sekali (dipakai buat upload Drive & tempel ke PDF)
           const photoFile = card.querySelector('.site-receive-photo').files[0];
-          let photoURL = null, photoFileID = null, photoDataUrl = null;
+          let photoFileID = null, photoDataUrl = null;
           if (photoFile) {
             btn.textContent = "Mengompres foto...";
             const { compressedBlob, dataUrl } = await compressImageForReport(photoFile);
             photoDataUrl = dataUrl;
             btn.textContent = "Mengupload foto...";
-            const uploaded = await uploadToDrive("photos", `SR_${noTrx.replace(/\//g, '-')}.jpg`, "image/jpeg", compressedBlob);
-            photoURL = buildDriveViewUrl(uploaded);
+            const uploaded = await uploadToDrive("photos", `SR_${Date.now()}.jpg`, "image/jpeg", compressedBlob);
             photoFileID = uploaded.fileId;
           }
 
-          payload.forEach(p => {
-            p.NoTransaksi = noTrx;
-            p.PhotoURL = photoURL;
-            p.PhotoFileID = photoFileID;
-            p.LokasiNama = matchedLocation ? matchedLocation.namalokasi : null;
-            p.Latitude = matchedLat;
-            p.Longitude = matchedLng;
-          });
-
+          // Lewat terima_di_site (S5): sesi Badge + tag "Penerima barang <proyek>" + sisa kiriman dicek server.
+          // No. Transaksi dibuat server; kiriman yang diterima penuh ditandai selesai oleh server.
           btn.textContent = "Menyimpan...";
-          const { error: insErr } = await supabaseClient.from('siteReceiving').insert(payload);
-          if (insErr) throw insErr;
-
-          // kalau qty diterima sekarang == sisa (diterima penuh), tandai delivery row itu selesai
-          const fullyReceivedIds = payload.filter(p => {
-            const tr = card.querySelector(`tr[data-deliveryid="${p.DeliveryID}"]`);
-            return tr && Number(tr.dataset.sisa) === p.QtyReceived;
-          }).map(p => p.DeliveryID);
-          if (fullyReceivedIds.length > 0) {
-            await supabaseClient.from('delivery').update({ DeliveredBy: verifiedId, ReceivedDate: new Date().toISOString() }).in('DeliveryID', fullyReceivedIds);
-          }
+          const { data: hasilSr, error: errSr } = await supabaseClient.rpc('terima_di_site', {
+            p_token: sesiBadgeToken(),
+            p_items: payload.map(p => ({ deliveryId: p.DeliveryID, qty: p.QtyReceived })),
+            p_notes: notes, p_photo_file_id: photoFileID,
+            p_lokasi: matchedLocation ? matchedLocation.namalokasi : null, p_lat: matchedLat, p_lng: matchedLng
+          });
+          const noTrx = cekHasilS5(hasilSr, errSr).noTransaksi;
 
           showBanner(resultBanner, `✅ Penerimaan barang No. Surat Jalan <strong>${suratJalanNo}</strong> berhasil disimpan oleh ${verifiedNama}.`, "ok");
 
@@ -1182,7 +1163,7 @@ async function showPendingDeliveries(projCode) {
             });
             const pdfBlob = reportPdfToBlob(pdfDoc);
             const uploadedPdf = await uploadReportPdfToDrive(pdfBlob, `SR_${noTrx.replace(/\//g, '-')}.pdf`);
-            await supabaseClient.from('siteReceiving').update({ ReportURL: buildDriveViewUrl(uploadedPdf), ReportFileID: uploadedPdf.fileId }).eq('NoTransaksi', noTrx);
+            await supabaseClient.rpc('laporan_terima_set_report', { p_token: sesiBadgeToken(), p_jenis: 'sr', p_notrx: noTrx, p_file_id: uploadedPdf.fileId });
 
             // Update Status PO menjadi 'Barang Tiba di Site' dan Request terkait menjadi 'Barang Diterima di Site'
             try {

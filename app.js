@@ -1847,9 +1847,10 @@ async function regenerateEndUserReceivingReport(noTrx, btnEl) {
       const uploaded = await uploadReportPdfToDrive(pdfBlob, `EUR_${String(noTrx).replace(/\//g, '-')}.pdf`);
       if (uploaded && uploaded.fileId) {
         directUrl = buildDriveViewUrl(uploaded);
-        const { error: updErr } = await supabaseClient.from('endUserReceiving')
-          .update({ ReportURL: directUrl, ReportFileID: uploaded.fileId }).eq('NoTransaksi', noTrx);
-        if (updErr) console.warn('Gagal simpan ReportURL EUR:', updErr);
+        const { data: hasilLap, error: updErr } = await supabaseClient.rpc('laporan_terima_set_report', {
+          p_token: (currentUser && currentUser.sessionToken) || '', p_jenis: 'eur', p_notrx: String(noTrx), p_file_id: uploaded.fileId
+        });
+        if (updErr || !hasilLap || hasilLap.status !== 'OK') console.warn('Gagal simpan ReportURL EUR:', updErr || hasilLap);
       }
     } catch (eDrive) {
       console.warn('Upload Drive error (EUR):', eDrive);
@@ -3984,8 +3985,14 @@ async function submitVendorReceivingBatch(poId) {
   }
 
   try {
-    const { error } = await supabaseClient.from('vendorReceiving').insert(payload);
+    // Lewat terima_dari_vendor (S5): sesi login + tag TV + sisa qty PO dicek server.
+    const { data: hasilTv, error } = await supabaseClient.rpc('terima_dari_vendor', {
+      p_token: (currentUser && currentUser.sessionToken) || '', p_poid: Number(poId),
+      p_vendor_doc: vendorDocNumber, p_notes: notes,
+      p_items: payload.map(p => ({ podetailId: p.PODetailID, qty: p.QtyReceived }))
+    });
     if (error) throw error;
+    if (!hasilTv || hasilTv.status !== 'OK') throw new Error((hasilTv && hasilTv.message) || 'Gagal menyimpan penerimaan.');
     showToast('Penerimaan barang berhasil disimpan.', 'success');
     loadPoReceivingDetail(poId);
   } catch (err) {
@@ -3998,7 +4005,7 @@ async function submitVendorReceivingBatch(poId) {
 // tidak memuat ulang file). version.json dicek tiap 5 menit & saat tab aktif lagi; kalau beda
 // dengan versi kode yang sedang jalan -> tawarkan muat ulang.
 // Setiap update SMMS: samakan SMMS_VERSI, version.json, dan ?v= di index.html.
-const SMMS_VERSI = '2026-10-02.3';
+const SMMS_VERSI = '2026-10-02.4';
 (function () {
   let sudahTampil = false;
   function tampilkanPemberitahuan() {
