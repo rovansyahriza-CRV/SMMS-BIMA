@@ -2208,17 +2208,39 @@ async function loadVendorList() {
   }
 }
 
+// Review/approval vendor lewat vendor_proses: sesi login + tag RV (review) / AV (approval)
+// dicek server. Dulu process_vendor_approval percaya Id karyawan kiriman browser.
+async function prosesVendor(vendorId, decision, reason) {
+  const { data, error } = await supabaseClient.rpc('vendor_proses', {
+    p_token: (currentUser && currentUser.sessionToken) || '',
+    p_vendor_id: Number(vendorId), p_decision: decision, p_reason: reason || null
+  });
+  if (error) throw error;
+  if (!data || data.status !== 'OK') throw new Error((data && data.message) || 'Gagal memproses vendor.');
+  return data;
+}
+
 async function approveVendor(vendorId) {
   if (!confirm('Setujui vendor ini?')) return;
   try {
-    const { error } = await supabaseClient.rpc('process_vendor_approval', {
-      p_vendor_id: vendorId, p_karyawan_id: currentUser.id, p_decision: 'Approve'
-    });
-    if (error) throw error;
+    await prosesVendor(vendorId, 'Approve', null);
     showToast('Vendor berhasil diproses', 'success');
     loadVendorList();
   } catch (err) {
     showToast('Gagal memproses vendor: ' + err.message, 'error');
+  }
+}
+
+// Tombol "Tolak" di daftar vendor memanggil fungsi ini (sebelumnya fungsinya tidak ada).
+async function rejectVendor(vendorId) {
+  const reason = prompt('Alasan penolakan vendor:');
+  if (reason === null) return;
+  try {
+    await prosesVendor(vendorId, 'Reject', reason);
+    showToast('Vendor ditolak.', 'success');
+    loadVendorList();
+  } catch (err) {
+    showToast('Gagal menolak vendor: ' + err.message, 'error');
   }
 }
 
@@ -2255,24 +2277,15 @@ async function submitVendorRegisterAdmin(event) {
   };
 
   try {
-    // Cek duplikat berdasarkan NPWP atau Email (RPC yang sama dipakai vendor-register.html)
-    if (data.NPWP || data.Email) {
-      const { data: dupRows, error: dupErr } = await supabaseClient.rpc('check_vendor_duplicate', {
-        p_npwp: data.NPWP || null,
-        p_email: data.Email || null
-      });
-      if (dupErr) throw dupErr;
-
-      if (dupRows && dupRows.length > 0) {
-        showToast(`Vendor "${dupRows[0].vendorname}" dengan NPWP/Email ini sudah terdaftar (status: ${dupRows[0].status}).`, 'error');
-        btn.disabled = false;
-        btn.textContent = 'Kirim Registrasi';
-        return;
-      }
-    }
-
-    const { error: insertErr } = await supabaseClient.from('vendor').insert(data);
+    // Simpan lewat vendor_daftar: validasi + cek duplikat NPWP/Email di server, status selalu "Review".
+    const { data: hasil, error: insertErr } = await supabaseClient.rpc('vendor_daftar', { p_data: data });
     if (insertErr) throw insertErr;
+    if (!hasil || hasil.status !== 'OK') {
+      showToast((hasil && hasil.message) || 'Gagal mendaftarkan vendor.', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Kirim Registrasi';
+      return;
+    }
 
     document.getElementById('formVendorRegisterAdmin').reset();
     if (vendorAccess.canApprove) {
@@ -3035,7 +3048,7 @@ async function vqaOpenForm(rfqVendorId, rfqId, vendorId) {
     ] = await Promise.all([
       supabaseClient.from('rfq').select('*').eq('RFQID', rfqId),
       supabaseClient.from('vendor').select('*').eq('VendorID', vendorId),
-      supabaseClient.from('rfqVendor').select('*').eq('RFQVendorID', rfqVendorId),
+      supabaseClient.from('rfqVendor').select('RFQVendorID, RFQID, VendorID, SentDate, Status, ConfirmationStatus, ConfirmationDate, Notes, ManagementApproval, ManagementApprovalBy, ManagementApprovalDate').eq('RFQVendorID', rfqVendorId),
       supabaseClient.from('rfqDetail').select('*').eq('RFQID', rfqId),
       supabaseClient.from('rfqQuote').select('*').eq('VendorID', vendorId),
       supabaseClient.from('rfqVendorTerm').select('*').eq('RFQVendorID', rfqVendorId),
