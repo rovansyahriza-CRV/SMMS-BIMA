@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SMMS-BIMA — Monitoring</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-heartbeat.js?v=2026-10-02.5"></script>
 <style>
   :root {
     --bg:#EEF1F5; --surface:#FFFFFF; --surface-2:#F6F7F9;
@@ -198,6 +199,7 @@
 const SUPABASE_URL = "https://nhmpwjriextmbotmvvbu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+supabaseHeartbeat(supabaseClient);
 
 let scopeFilter = null;   // null = semua project, number = 1 project (dari dropdown)
 let categoryFilter = null; // null = semua kategori, atau salah satu ItemGroup
