@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Konfirmasi Hasil Seleksi Vendor</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-heartbeat.js?v=2026-10-02.5"></script>
 <style>
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 16px; color: #2C3E50; background: #fdf6f3; }
@@ -101,6 +102,7 @@
 const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+supabaseHeartbeat(supabaseClient);
 
 const RFQ_EMAIL_URL = "https://script.google.com/macros/s/AKfycbww8VikG_wpAvQro1-9vLC_llnvKFigFotzKXS-T_kaIHKA4q2QGbYXqZObEF5j_1Hr/exec";
 const HO_EMAIL = "rovan.syahriza@gmail.com";

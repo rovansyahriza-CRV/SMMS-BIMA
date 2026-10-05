@@ -1,6 +1,7 @@
 const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+supabaseHeartbeat(supabaseClient);
 
 // Penampung aman agar pemanggilan generateRefNo / generateNewRefNo tidak crash
 function generateRefNo() {
