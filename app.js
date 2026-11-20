@@ -561,7 +561,7 @@ function renderRowToTable(item) {
   const actionButtonsHtml = canEdit ? `
     <td style="text-align: center;">
       <div class="action-btns">
-        <button class="btn-icon btn-icon-edit" title="Edit Data" onclick="startEdit('${item.ID}', '${escapeHtml(item.Group)}', '${escapeHtml(item.Specification)}', '${escapeHtml(item.Size)}', '${escapeHtml(item.Unit)}')">
+        <button class="btn-icon btn-icon-edit" title="Edit Data" onclick="startEdit('${item.ID}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -578,11 +578,11 @@ function renderRowToTable(item) {
   ` : `<td style="text-align: center; color: #aaa;">-</td>`;
 
   tr.innerHTML = `
-    <td><strong>${item.ID}</strong></td>
-    <td><strong>${item.Group || '-'}</strong></td>
-    <td>${item.Specification || '-'}</td>
-    <td>${item.Size || '-'}</td>
-    <td><span class="badge-unit">${item.Unit || '-'}</span></td>
+    <td><strong>${escapeText(item.ID)}</strong></td>
+    <td><strong>${escapeText(item.Group) || '-'}</strong></td>
+    <td>${escapeText(item.Specification) || '-'}</td>
+    <td>${escapeText(item.Size) || '-'}</td>
+    <td><span class="badge-unit">${escapeText(item.Unit) || '-'}</span></td>
     ${actionButtonsHtml}
   `;
   tbody.appendChild(tr);
@@ -607,11 +607,32 @@ document.getElementById('formStok')?.addEventListener('submit', async function(e
   btn.disabled = true;
 
       const itemData = {
-        Group: document.getElementById('group').value,
-        Specification: document.getElementById('specification').value,
-        Size: document.getElementById('size').value,
-        Unit: document.getElementById('unit').value
+        Group: document.getElementById('group').value.trim(),
+        Specification: document.getElementById('specification').value.trim(),
+        Size: document.getElementById('size').value.trim(),
+        Unit: document.getElementById('unit').value.trim()
       };
+
+      // Isi cuma spasi lolos dari atribut "required" -> tolak di sini.
+      if (!itemData.Group || !itemData.Specification || !itemData.Unit) {
+        showToast('Group, Spesifikasi, dan Satuan wajib diisi.', 'error');
+        btn.textContent = isEditMode ? 'Simpan Perubahan' : 'Tambah Master Item';
+        btn.disabled = false;
+        return;
+      }
+
+      // Cegah item dobel (Group + Spesifikasi + Size sama) di kategori yang sama.
+      const norm = v => String(v || '').trim().toLowerCase();
+      const dup = (rawCategoryData || []).find(item =>
+        String(item.ID) !== String(editId) &&
+        norm(item.Group) === norm(itemData.Group) &&
+        norm(item.Specification) === norm(itemData.Specification) &&
+        norm(item.Size) === norm(itemData.Size));
+      if (dup && !confirm(`Item serupa sudah ada (ID ${dup.ID}: ${dup.Group} / ${dup.Specification} / ${dup.Size || '-'}). Tetap simpan?`)) {
+        btn.textContent = isEditMode ? 'Simpan Perubahan' : 'Tambah Master Item';
+        btn.disabled = false;
+        return;
+      }
 
       try {
         // Lewat resource_simpan: sesi login + hak MR dicek server (tabel master terkunci untuk tulis langsung).
@@ -628,20 +649,26 @@ document.getElementById('formStok')?.addEventListener('submit', async function(e
         loadCategoryData();
       } catch (error) {
         showToast('Gagal: ' + error.message, 'error');
+        // Kalau gagal, form tetap terisi -> kembalikan label tombol (dulu nyangkut di "Menambahkan...").
+        btn.textContent = isEditMode ? 'Simpan Perubahan' : 'Tambah Master Item';
       } finally {
         btn.disabled = false;
       }
     });
 
-function startEdit(id, group, spec, size, unit) {
+function startEdit(id) {
   if (!currentUser || !currentUser.canInputMaster) return;
+  // Ambil data dari rawCategoryData (bukan dari argumen onclick) supaya teks berisi
+  // kutip / backslash / tanda " (mis. ukuran 1/2") tidak rusak atau bikin tombol error.
+  const item = (rawCategoryData || []).find(r => String(r.ID) === String(id));
+  if (!item) return;
 
   document.getElementById('editId').value = id;
-  document.getElementById('group').value = group;
+  document.getElementById('group').value = item.Group || '';
   updateSpecificationOptions();
-  document.getElementById('specification').value = spec;
-  document.getElementById('size').value = size;
-  document.getElementById('unit').value = unit;
+  document.getElementById('specification').value = item.Specification || '';
+  document.getElementById('size').value = item.Size || '';
+  document.getElementById('unit').value = item.Unit || '';
 
   document.getElementById('btnSubmit').textContent = 'Simpan Perubahan';
   document.getElementById('btnCancel').style.display = 'block';
@@ -681,10 +708,17 @@ async function deleteItem(id) {
     if (error) throw error;
     if (!hasil || hasil.status !== 'OK') throw new Error((hasil && hasil.message) || 'Gagal menghapus data.');
 
+    showToast(`Data ID ${id} berhasil dihapus.`, 'success');
     loadCategoryData();
   } catch (error) {
     showToast('Gagal menghapus: ' + error.message, 'error');
   }
+}
+
+// Escape teks sebelum masuk innerHTML tabel master.
+function escapeText(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function escapeHtml(str) {
