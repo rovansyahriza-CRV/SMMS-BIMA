@@ -183,9 +183,11 @@
           <input type="hidden" id="editId" value="">
 
           <div class="input-group">
-            <label for="group">Kelompok Item (Group)</label>
-            <input type="text" id="group" list="groupOptions" placeholder="Ketik untuk mencari / pilih Group..." autocomplete="off" required>
-            <datalist id="groupOptions"></datalist>
+            <label for="groupSelect">Kelompok Item (Group)</label>
+            <select id="groupSelect" required>
+              <option value="">-- Pilih Group --</option>
+            </select>
+            <input type="text" id="group" placeholder="Ketik nama Group baru..." autocomplete="off" style="display: none; margin-top: 8px;">
           </div>
 
           <div class="input-group">

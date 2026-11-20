@@ -74,6 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === LOGIKA AUTO FILTER SPESIFIKASI DARI GROUP (MASTER RESOURCES) ===
+    const groupSelect = document.getElementById('groupSelect');
+    if (groupSelect) groupSelect.addEventListener('change', handleGroupSelectChange);
     const groupInput = document.getElementById('group');
     if (groupInput) {
       groupInput.addEventListener('input', updateSpecificationOptions);
@@ -420,22 +422,80 @@ async function loadCurrentCategory() {
   await loadCategoryData();
 }
 
-// #1 - loadGroupOptions()
-function loadGroupOptions() {
-  const datalist = document.getElementById('groupOptions');
-  if (!datalist) return;
-  datalist.innerHTML = '';
+// #1 - loadGroupOptions(): dropdown Group diisi dari Group yang sudah ada di kategori aktif,
+// plus opsi "+ Group baru" untuk bikin kelompok item yang belum ada.
+const NEW_GROUP_VALUE = '__new__';
 
-  const seen = new Set();
+function loadGroupOptions() {
+  const select = document.getElementById('groupSelect');
+  if (!select) return;
+  const keepValue = (document.getElementById('group')?.value || '').trim();
+
+  const groups = new Map(); // lowercase -> nama asli (hindari dobel beda huruf besar/kecil)
   (rawCategoryData || []).forEach(item => {
-    const groupName = item.Group || item.GroupName || item.Name;
-    if (groupName && !seen.has(groupName)) {
-      seen.add(groupName);
-      const option = document.createElement('option');
-      option.value = String(groupName).trim();
-      datalist.appendChild(option);
-    }
+    const name = String(item.Group || '').trim();
+    if (name && !groups.has(name.toLowerCase())) groups.set(name.toLowerCase(), name);
   });
+  const sorted = [...groups.values()].sort((a, b) => a.localeCompare(b, 'id'));
+
+  select.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = '-- Pilih Group --';
+  select.appendChild(ph);
+  sorted.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name;
+    select.appendChild(opt);
+  });
+  const optNew = document.createElement('option');
+  optNew.value = NEW_GROUP_VALUE; optNew.textContent = '+ Group baru...';
+  select.appendChild(optNew);
+
+  setGroupValue(keepValue);
+}
+
+// Set nilai Group di form: kalau ada di dropdown -> pilih; kalau belum ada -> mode "Group baru".
+function setGroupValue(value) {
+  const select = document.getElementById('groupSelect');
+  const input = document.getElementById('group');
+  if (!select || !input) return;
+  const v = String(value || '').trim();
+  const match = [...select.options].find(o => o.value !== NEW_GROUP_VALUE && o.value && o.value.toLowerCase() === v.toLowerCase());
+  if (!v) {
+    select.value = '';
+    showNewGroupInput(false);
+    input.value = '';
+  } else if (match) {
+    select.value = match.value;
+    showNewGroupInput(false);
+    input.value = match.value;
+  } else {
+    select.value = NEW_GROUP_VALUE;
+    showNewGroupInput(true);
+    input.value = v;
+  }
+}
+
+function showNewGroupInput(show) {
+  const input = document.getElementById('group');
+  if (!input) return;
+  input.style.display = show ? 'block' : 'none';
+  input.required = show;
+}
+
+function handleGroupSelectChange() {
+  const select = document.getElementById('groupSelect');
+  const input = document.getElementById('group');
+  if (!select || !input) return;
+  if (select.value === NEW_GROUP_VALUE) {
+    input.value = '';
+    showNewGroupInput(true);
+    input.focus();
+  } else {
+    input.value = select.value;
+    showNewGroupInput(false);
+  }
+  updateSpecificationOptions();
 }
 
 async function loadCategoryData() {
@@ -508,7 +568,7 @@ function handleSpecificationInput(e) {
       unitInput.value = matched.Unit;
     }
     if (groupInput && !groupInput.value && (matched.Group || matched.GroupName)) {
-      groupInput.value = matched.Group || matched.GroupName;
+      setGroupValue(matched.Group || matched.GroupName);
     }
   }
 }
@@ -613,6 +673,11 @@ document.getElementById('formStok')?.addEventListener('submit', async function(e
         Unit: document.getElementById('unit').value.trim()
       };
 
+      // Group baru yang ternyata sudah ada (beda huruf besar/kecil saja) -> pakai ejaan yang sudah ada.
+      const existingGroup = (rawCategoryData || []).map(r => String(r.Group || '').trim())
+        .find(g => g && g.toLowerCase() === itemData.Group.toLowerCase());
+      if (existingGroup) itemData.Group = existingGroup;
+
       // Isi cuma spasi lolos dari atribut "required" -> tolak di sini.
       if (!itemData.Group || !itemData.Specification || !itemData.Unit) {
         showToast('Group, Spesifikasi, dan Satuan wajib diisi.', 'error');
@@ -664,7 +729,7 @@ function startEdit(id) {
   if (!item) return;
 
   document.getElementById('editId').value = id;
-  document.getElementById('group').value = item.Group || '';
+  setGroupValue(item.Group || '');
   updateSpecificationOptions();
   document.getElementById('specification').value = item.Specification || '';
   document.getElementById('size').value = item.Size || '';
@@ -680,6 +745,7 @@ document.getElementById('btnCancel')?.addEventListener('click', resetForm);
 function resetForm() {
   const form = document.getElementById('formStok');
   if (form) form.reset();
+  setGroupValue('');
   
   const editId = document.getElementById('editId');
   if (editId) editId.value = '';
