@@ -8,6 +8,7 @@
   <link rel="icon" type="image/png" href="fusion4.png">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-heartbeat.js?v=2026-10-02.5"></script>
 
   <style>
     :root {
@@ -255,6 +256,7 @@
   const SUPABASE_URL = 'https://nhmpwjriextmbotmvvbu.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_XNqLw7iz873TtrLn9ag8dQ_AkL2rImz';
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  supabaseHeartbeat(supabaseClient);
 
   const urlParams = new URLSearchParams(window.location.search);
   const rfqIdParam = Number(urlParams.get('rfq'));
