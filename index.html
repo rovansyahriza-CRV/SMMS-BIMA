@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="SMMS BIMA">
-  <meta name="theme-color" content="#E04D23">
+  <meta name="theme-color" content="#141B2D">
 
-  <link rel="stylesheet" href="style.css?v=2026-10-02.5">
+  <link rel="stylesheet" href="style.css?v=2026-11-28.1">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -27,6 +27,16 @@
 <body class="layout-sidebar">
 
   <div id="toastContainer"></div>
+
+  <!-- Topbar khusus layar kecil: tombol buka sidebar -->
+  <header class="mobile-topbar">
+    <button type="button" class="burger" id="btnSidebarToggle" aria-label="Buka menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="mt-logo"><img src="logo-bima.png" alt="BIMA"></div>
+    <div class="mt-title"><small>SMMS · BIMA</small>Portal Resources</div>
+  </header>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <!-- LEFT SIDEBAR -->
   <aside class="sidebar">
     <!-- Header Kurva Oranye BIMA -->
@@ -219,13 +229,13 @@
         <div class="card-header space-between">
           <div>
             <h3 id="tableTitle">List Master Data Material</h3>
-            <p class="card-subtitle">Data tersinkronisasi otomatis dari Google Sheets</p>
+            <p class="card-subtitle">Data tersinkronisasi otomatis dari database</p>
           </div>
           <span class="badge-count" id="totalCount">0 Items</span>
         </div>
 
         <div class="table-search-bar">
-          <input type="text" id="globalSearch" class="search-input" placeholder="🔍 Cari berdasarkan Group, Spesifikasi, atau Ukuran...">
+          <input type="text" id="globalSearch" class="search-input" placeholder="Cari berdasarkan Group, Spesifikasi, atau Ukuran...">
         </div>
 
         <div class="table-responsive">
@@ -257,12 +267,13 @@
       <!-- Card Form Request Material -->
     <div class="card form-card">
       <div class="card-header">
-        <h3>📝 Input Pengajuan Material Baru</h3>
+        <h3>Input Pengajuan Material Baru</h3>
+        <p class="card-subtitle">Isi data header sekali, lalu tambahkan item sebanyak yang dibutuhkan.</p>
       </div>
       <form id="formRequestBatch" onsubmit="handleBatchSubmitRequest(event)">
 
         <!-- MAIN FORM (Header, isi sekali) -->
-        <div class="form-grid" style="margin-bottom: 20px;">
+        <div class="form-grid">
           <!-- PEMBEBANAN BIAYA: titik krusial laporan biaya (project, fungsi, divisi) -->
           <fieldset class="cost-alloc">
             <legend>💰 Pembebanan Biaya</legend>
@@ -332,14 +343,13 @@
           </div>
           <div class="input-group">
             <label for="reqRefNo">Ref No (Otomatis System)</label>
-            <input type="text" id="reqRefNo" placeholder="Digenerate otomatis saat submit" readonly
-              style="background-color:#EFECE6; cursor:not-allowed; color:#888;">
+            <input type="text" id="reqRefNo" placeholder="Digenerate otomatis saat submit" readonly style="cursor:not-allowed;">
           </div>
         </div>
 
         <!-- SUB FORM (Detail Item, bisa lebih dari 1 baris) -->
-        <div class="card-header space-between" style="margin-top: 10px;">
-          <h4 style="margin:0;">Detail Item</h4>
+        <div class="card-header space-between" style="border-top:1px solid var(--border);">
+          <div><h3>Detail Item</h3><p class="card-subtitle">Satu baris per item yang diminta.</p></div>
           <button type="button" class="btn-logout-card" onclick="addRequestRow()" title="Tambah Baris Item">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -366,8 +376,8 @@
           </table>
         </div>
 
-        <div class="form-action flex-action" style="margin-top:16px;">
-          <button type="submit" id="btnSubmitBatchRequest" class="btn-primary">🚀 Kirim Semua Item Request</button>
+        <div class="action-bar" style="padding:16px 22px; border-top:1px solid var(--border); background:var(--surface-2);">
+          <button type="submit" id="btnSubmitBatchRequest" class="btn-primary btn-auto">Kirim Semua Item Request</button>
         </div>
       </form>
     </div>
@@ -376,7 +386,7 @@
         <div class="card table-card">
           <div class="card-header space-between">
             <div>
-              <h3>📋 Riwayat Pengajuan Request</h3>
+              <h3>Riwayat Pengajuan Request</h3>
               <p class="card-subtitle">Daftar pengajuan material yang telah dikirim ke pusat</p>
             </div>
             <span class="badge-count" id="totalRequestCount">0 Request</span>
@@ -395,7 +405,7 @@
                 </tr>
               </thead>
               <tbody id="tabelRequest">
-                <tr><td colspan="6" style="text-align:center; color: #777;">Belum ada data pengajuan.</td></tr>
+                <tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:28px;">Belum ada data pengajuan.</td></tr>
               </tbody>
             </table>
           </div>
@@ -403,7 +413,11 @@
     </section>
 
     <section id="sec-approval" class="app-section" style="display:none;">
-      <h2>Approval Request</h2>
+      <div class="page-title-section">
+        <span class="category-tag">APPROVAL</span>
+        <h2>Approval Request</h2>
+        <p>Request yang menunggu persetujuan di level kamu.</p>
+      </div>
       <table class="data-table" id="tableApproval">
         <thead>
           <tr>
@@ -424,9 +438,13 @@
     </section>
 
   <section id="sec-vendor" class="app-section" style="display:none;">
-    <div class="card-header space-between" style="padding:0; border:none; margin-bottom:14px;">
-      <h2 style="margin:0;" id="vendorSectionTitle">Approval Vendor</h2>
-      <button type="button" class="btn-logout-card" onclick="toggleVendorRegisterForm()" id="btnToggleVendorRegister">
+    <div class="page-title-section with-action">
+      <div>
+        <span class="category-tag">VENDOR</span>
+        <h2 id="vendorSectionTitle">Approval Vendor</h2>
+        <p>Review dan setujui vendor yang mendaftar, atau daftarkan vendor atas nama mereka.</p>
+      </div>
+      <button type="button" class="btn-logout-card" onclick="toggleVendorRegisterForm()" id="btnToggleVendorRegister" style="padding:10px 14px; font-size:13px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -438,7 +456,7 @@
     <!-- Form Registrasi Vendor (Input Admin) -- dipakai kalau vendor gak bisa isi sendiri
          lewat link publik vendor-register.html. Data yang di-submit masuk Status "Review"
          sama persis kayak kalau vendor isi sendiri, tetap harus di-approve di tabel bawah. -->
-    <div class="card" id="vendorRegisterFormCard" style="display:none; margin-bottom:20px;">
+    <div class="card" id="vendorRegisterFormCard" style="display:none;">
       <div class="card-header">
         <h3>+ Registrasi Vendor Baru (Input Admin)</h3>
         <p class="card-subtitle">Dipakai kalau vendor tidak bisa mengisi sendiri lewat link Portal Registrasi Vendor. Data tetap masuk status "Review" dan harus di-approve di tabel bawah.</p>
@@ -495,8 +513,8 @@
           <label for="vraBank">Bank</label>
           <input type="text" id="vraBank">
         </div>
-        <div class="input-group" style="grid-column: 1 / -1;">
-          <button type="submit" id="btnSubmitVendorRegisterAdmin" class="btn-primary">Kirim Registrasi</button>
+        <div class="input-group" style="grid-column: 1 / -1; align-items:flex-end;">
+          <button type="submit" id="btnSubmitVendorRegisterAdmin" class="btn-primary btn-auto">Kirim Registrasi</button>
         </div>
       </form>
     </div>
@@ -519,7 +537,11 @@
   </section>
 
   <section id="sec-approval-rfq" class="app-section" style="display:none;">
-    <h2>Approval Seleksi Vendor RFQ</h2>
+    <div class="page-title-section">
+      <span class="category-tag">APPROVAL</span>
+      <h2>Approval Seleksi Vendor RFQ</h2>
+      <p>Usulan pemenang RFQ yang menunggu persetujuan.</p>
+    </div>
     <table class="data-table" id="tableApprovalRfq">
       <thead>
         <tr>
@@ -537,77 +559,116 @@
   </section>
 
   <section id="sec-approval-po" class="app-section" style="display:none;">
-    <h2>Approval PO/SO</h2>
-    <table id="tableApprovalPo" style="width:100%; border-collapse:collapse;">
+    <div class="page-title-section">
+      <span class="category-tag">APPROVAL</span>
+      <h2>Approval PO/SO</h2>
+      <p>Purchase Order / Service Order yang diajukan dan menunggu persetujuan.</p>
+    </div>
+    <table id="tableApprovalPo" class="data-table">
       <thead>
-        <tr style="background:#f0eae6;">
-          <th style="padding:10px; text-align:left;">DOC NUMBER</th>
-          <th style="padding:10px; text-align:left;">TIPE</th>
-          <th style="padding:10px; text-align:left;">NO RFQ</th>
-          <th style="padding:10px; text-align:left;">VENDOR</th>
-          <th style="padding:10px; text-align:left;">TOTAL</th>
-          <th style="padding:10px; text-align:left;">DIAJUKAN OLEH</th>
-          <th style="padding:10px; text-align:left;">AKSI</th>
+        <tr>
+          <th>DOC NUMBER</th>
+          <th>TIPE</th>
+          <th>NO RFQ</th>
+          <th>VENDOR</th>
+          <th>TOTAL</th>
+          <th>DIAJUKAN OLEH</th>
+          <th>AKSI</th>
         </tr>
       </thead>
       <tbody id="approvalPoTableBody">
-        <tr><td colspan="7" style="text-align:center; padding:16px;">Memuat data...</td></tr>
+        <tr><td colspan="7" style="text-align:center;">Memuat data...</td></tr>
       </tbody>
     </table>
   </section>
 
   <section id="sec-rfq" class="app-section" style="display:none;">
-    <h2>Buat RFQ & Undang Vendor</h2>
+    <div class="page-title-section">
+      <span class="category-tag">PROCUREMENT</span>
+      <h2>Buat RFQ & Undang Vendor</h2>
+      <p>Pilih item request yang sudah approved, pilih vendor yang diundang, lalu kirim undangan penawaran.</p>
+    </div>
 
-    <h3 style="font-size:14px; margin-top:20px;">1. Pilih Item Request (Status: Approved)</h3>
-    <input type="text" id="searchRfqRequest" placeholder="Cari RefNo atau Item..." style="width:100%; padding:10px; margin:8px 0; border:1.5px solid #e6ded9; border-radius:8px; box-sizing:border-box;">
-    <table class="data-table" id="tableRfqRequest">
-      <thead>
-        <tr>
-          <th style="width:36px;"></th>
-          <th>RefNo</th>
-          <th>Item</th>
-          <th>Qty</th>
-          <th>Project</th>
-          <th>Riwayat RFQ</th>
-          <th>Sisa Qty</th>
-        </tr>
-      </thead>
-      <tbody id="rfqRequestTableBody">
-        <tr><td colspan="7" style="text-align:center;">Memuat data...</td></tr>
-      </tbody>
-    </table>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="step-title"><span class="step-no">1</span>Pilih Item Request (Status: Approved)</h3>
+      </div>
+      <div class="table-search-bar">
+        <input type="text" id="searchRfqRequest" class="search-input" placeholder="Cari RefNo atau Item...">
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="tableRfqRequest">
+          <thead>
+            <tr>
+              <th style="width:36px;"></th>
+              <th>RefNo</th>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Project</th>
+              <th>Riwayat RFQ</th>
+              <th>Sisa Qty</th>
+            </tr>
+          </thead>
+          <tbody id="rfqRequestTableBody">
+            <tr><td colspan="7" style="text-align:center;">Memuat data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-    <h3 style="font-size:14px; margin-top:20px;">2. Pilih Vendor yang Diundang</h3>
-    <input type="text" id="searchRfqVendor" placeholder="Cari Nama Vendor atau Kategori..." style="width:100%; padding:10px; margin:8px 0; border:1.5px solid #e6ded9; border-radius:8px; box-sizing:border-box;">
-    <table class="data-table" id="tableRfqVendor">
-      <thead>
-        <tr>
-          <th style="width:36px;"></th>
-          <th>Nama Vendor</th>
-          <th>Kategori</th>
-          <th>Email</th>
-        </tr>
-      </thead>
-      <tbody id="rfqVendorTableBody">
-        <tr><td colspan="4" style="text-align:center;">Memuat data...</td></tr>
-      </tbody>
-    </table>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="step-title"><span class="step-no">2</span>Pilih Vendor yang Diundang</h3>
+      </div>
+      <div class="table-search-bar">
+        <input type="text" id="searchRfqVendor" class="search-input" placeholder="Cari Nama Vendor atau Kategori...">
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="tableRfqVendor">
+          <thead>
+            <tr>
+              <th style="width:36px;"></th>
+              <th>Nama Vendor</th>
+              <th>Kategori</th>
+              <th>Email</th>
+            </tr>
+          </thead>
+          <tbody id="rfqVendorTableBody">
+            <tr><td colspan="4" style="text-align:center;">Memuat data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-      <label style="display:block; margin-top:16px; font-weight:600; font-size:13px;">Titik Pengiriman (Delivery Point)</label>
-      <input type="text" id="rfqDeliveryPoint" placeholder="Contoh: Site Balikpapan Baru, Gudang Utama, dll" style="width:100%; padding:10px; margin-top:6px; border:1.5px solid #e6ded9; border-radius:8px;">
-
-      <label style="display:block; margin-top:16px; font-weight:600; font-size:13px;">Catatan (opsional)</label>
-      <textarea id="rfqNotes" rows="2" style="width:100%; margin-top:6px; padding:10px; border:1.5px solid #e6ded9; border-radius:8px;"></textarea>
-
-    <button id="btnSubmitRfq" onclick="submitRFQ()" style="margin-top:16px; background:#e8562c; color:#fff; border:none; padding:12px 20px; border-radius:8px; font-weight:700; cursor:pointer;">Buat RFQ & Kirim Undangan</button>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="step-title"><span class="step-no">3</span>Detail Pengiriman</h3>
+      </div>
+      <div class="form-grid">
+        <div class="input-group">
+          <label for="rfqDeliveryPoint">Titik Pengiriman (Delivery Point)</label>
+          <input type="text" id="rfqDeliveryPoint" placeholder="Contoh: Site Balikpapan Baru, Gudang Utama, dll">
+        </div>
+        <div class="input-group">
+          <label for="rfqNotes">Catatan (opsional)</label>
+          <textarea id="rfqNotes" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="action-bar" style="padding:16px 22px; border-top:1px solid var(--border); background:var(--surface-2);">
+        <button id="btnSubmitRfq" class="btn-primary btn-auto" onclick="submitRFQ()">Buat RFQ & Kirim Undangan</button>
+      </div>
+    </div>
   </section>
 
   <section id="sec-rfq-selection" class="app-section" style="display:none;">
-    <h2>Seleksi Vendor RFQ</h2>
-    <div style="margin-bottom:16px;">
-      <label for="selectRfqForSelection"><strong>Pilih RFQ:</strong></label><br>
-      <select id="selectRfqForSelection" onchange="loadRfqSelectionDetail(this.value)" style="padding:8px 12px;min-width:280px;border-radius:8px;border:1.5px solid #e6ded9;">
+    <div class="page-title-section">
+      <span class="category-tag">PROCUREMENT</span>
+      <h2>Seleksi Vendor RFQ</h2>
+      <p>Bandingkan penawaran vendor per item lalu tentukan pemenangnya.</p>
+    </div>
+    <div class="card card-body">
+      <label for="selectRfqForSelection" class="field-label">Pilih RFQ</label>
+      <select id="selectRfqForSelection" class="select-input" onchange="loadRfqSelectionDetail(this.value)">
         <option value="">-- Pilih RFQ --</option>
       </select>
     </div>
@@ -623,11 +684,11 @@
 
     <div class="card table-card">
       <div class="card-header">
-        <h3 style="margin:0;">1. Pilih RFQ</h3>
+        <h3 class="step-title"><span class="step-no">1</span>Pilih RFQ</h3>
       </div>
-      <div style="padding:16px 24px;">
-        <label for="selectRfqForVqa"><strong>RFQ:</strong></label><br>
-        <select id="selectRfqForVqa" onchange="vqaLoadVendorsForRfq(this.value)" style="padding:8px 12px; margin-top:6px; min-width:280px; border-radius:8px; border:1.5px solid #e6ded9;">
+      <div class="card-body">
+        <label for="selectRfqForVqa" class="field-label">RFQ</label>
+        <select id="selectRfqForVqa" class="select-input" onchange="vqaLoadVendorsForRfq(this.value)">
           <option value="">-- Pilih RFQ --</option>
         </select>
       </div>
@@ -645,39 +706,51 @@
       </div>
     </div>
 
-    <div id="vqaFormContainer" style="margin-top:20px;"></div>
+    <div id="vqaFormContainer"></div>
   </section>
 
   <section id="sec-po-submit" class="app-section" style="display:none;">
-    <h2>Ajukan PO/SO</h2>
-    <div style="margin-bottom:12px;">
-      <input type="text" id="searchPoSubmit" placeholder="Cari No RFQ atau Vendor..." style="width:100%; padding:8px 12px; border:1.5px solid #e6ded9; border-radius:8px;">
+    <div class="page-title-section">
+      <span class="category-tag">PROCUREMENT</span>
+      <h2>Ajukan PO/SO</h2>
+      <p>Centang draft PO/SO yang siap, lalu ajukan untuk approval.</p>
     </div>
-    <table id="tablePoSubmit" style="width:100%; border-collapse:collapse;">
-      <thead>
-        <tr style="background:#f0eae6;">
-          <th style="padding:10px; text-align:left;"><input type="checkbox" id="chkAllPoSubmit"></th>
-          <th style="padding:10px; text-align:left;">DOC NUMBER</th>
-          <th style="padding:10px; text-align:left;">TIPE</th>
-          <th style="padding:10px; text-align:left;">NO RFQ</th>
-          <th style="padding:10px; text-align:left;">VENDOR</th>
-          <th style="padding:10px; text-align:left;">TOTAL</th>
-        </tr>
-      </thead>
-      <tbody id="poSubmitTableBody">
-        <tr><td colspan="6" style="text-align:center; padding:16px;">Memuat data...</td></tr>
-      </tbody>
-    </table>
-    <div style="margin-top:16px;">
-      <button onclick="submitPoForApproval()" style="padding:10px 20px; background:#e8562c; color:#fff; border:none; border-radius:8px; font-weight:600; cursor:pointer;">Ajukan Approval</button>
+    <div class="card">
+      <div class="table-search-bar">
+        <input type="text" id="searchPoSubmit" class="search-input" placeholder="Cari No RFQ atau Vendor...">
+      </div>
+      <div class="table-responsive">
+        <table id="tablePoSubmit" class="data-table">
+          <thead>
+            <tr>
+              <th style="width:40px;"><input type="checkbox" id="chkAllPoSubmit"></th>
+              <th>DOC NUMBER</th>
+              <th>TIPE</th>
+              <th>NO RFQ</th>
+              <th>VENDOR</th>
+              <th>TOTAL</th>
+            </tr>
+          </thead>
+          <tbody id="poSubmitTableBody">
+            <tr><td colspan="6" style="text-align:center;">Memuat data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="action-bar" style="padding:14px 22px; border-top:1px solid var(--border); background:var(--surface-2);">
+        <button class="btn-primary btn-auto" onclick="submitPoForApproval()">Ajukan Approval</button>
+      </div>
     </div>
   </section>
 
   <section id="sec-vendor-receiving" class="app-section" style="display:none;">
-    <h2>Terima Barang dari Vendor</h2>
-    <div style="margin-bottom:16px;">
-      <label for="selectPoForReceiving"><strong>Pilih PO/SO (Approved):</strong></label><br>
-      <select id="selectPoForReceiving" onchange="loadPoReceivingDetail(this.value)" style="padding:8px 12px;min-width:280px;border-radius:8px;border:1.5px solid #e6ded9;">
+    <div class="page-title-section">
+      <span class="category-tag">RECEIVING</span>
+      <h2>Terima Barang dari Vendor</h2>
+      <p>Catat jumlah barang yang diterima dari vendor per PO/SO.</p>
+    </div>
+    <div class="card card-body">
+      <label for="selectPoForReceiving" class="field-label">Pilih PO/SO (Approved)</label>
+      <select id="selectPoForReceiving" class="select-input" onchange="loadPoReceivingDetail(this.value)">
         <option value="">-- Pilih PO/SO --</option>
       </select>
     </div>
@@ -700,18 +773,17 @@
       <button type="button" class="tab-btn" data-report-cat="endUserReceiving" onclick="loadViewReportPage('endUserReceiving', this)">End User Receiving</button>
     </div>
 
-    <div class="card table-card" style="margin-top:14px;">
+    <div class="card table-card">
       <div class="card-header space-between">
         <div>
-          <h3 id="viewReportTitle">📄 Report Request</h3>
+          <h3 id="viewReportTitle">Report Request</h3>
           <p class="card-subtitle" id="viewReportSubtitle">Daftar transaksi Request beserta link report PDF-nya.</p>
         </div>
         <span class="badge-count" id="viewReportCount">0 Transaksi</span>
       </div>
 
-      <div style="padding:0 4px 12px;">
-        <input type="text" id="viewReportSearch" placeholder="Cari No. Transaksi..." oninput="renderViewReportTable()"
-          style="width:100%;max-width:320px;padding:8px 12px;border-radius:8px;border:1.5px solid #e6ded9;">
+      <div class="table-search-bar">
+        <input type="text" id="viewReportSearch" class="search-input compact" placeholder="Cari No. Transaksi..." oninput="renderViewReportTable()">
       </div>
 
       <div class="table-responsive">
@@ -725,7 +797,7 @@
             </tr>
           </thead>
           <tbody id="viewReportTableBody">
-            <tr><td colspan="4" style="text-align:center; color:#777;">Memuat data...</td></tr>
+            <tr><td colspan="4" style="text-align:center; color:var(--text-faint);">Memuat data...</td></tr>
           </tbody>
         </table>
       </div>
@@ -738,26 +810,36 @@
   <div id="loginModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>🔑 Login SMMS BIMA</h3>
-        <p>Pilih Nama Karyawan dan Masukkan Password</p>
+        <div class="modal-logo"><img src="logo-bima.png" alt="Logo BIMA"></div>
+        <h3>Login SMMS BIMA</h3>
+        <p>Pilih nama karyawan dan masukkan password</p>
       </div>
       <form id="formLogin">
         <div class="input-group" style="position: relative;">
           <label for="loginSearch">Nama Karyawan</label>
-          <input type="text" id="loginSearch" placeholder="Ketik nama Anda..." autocomplete="off" required
-                 style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box;">
+          <input type="text" id="loginSearch" placeholder="Ketik nama Anda..." autocomplete="off" required>
           <input type="hidden" id="loginId" value="">
-          <div id="loginSuggestions" style="display:none; position:absolute; top:100%; left:0; right:0; margin-top:2px; background:#fff; border:1px solid #ccc; border-radius:6px; max-height:190px; overflow-y:auto; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,0.12);"></div>
+          <div id="loginSuggestions" class="suggest-box"></div>
         </div>
-        <div class="input-group" style="margin-top: 15px;">
+        <div class="input-group">
           <label for="loginPass">Password</label>
-          <input type="password" id="loginPass" placeholder="Masukkan Password" required>
+          <input type="password" id="loginPass" placeholder="Masukkan password" required>
         </div>
-        <button type="submit" id="btnLoginSubmit" class="btn-primary" style="width: 100%; margin-top: 20px;">Masuk Aplikasi</button>
+        <button type="submit" id="btnLoginSubmit" class="btn-primary" style="margin-top: 22px;">Masuk Aplikasi</button>
       </form>
     </div>
   </div>
 
+<script>
+  // Sidebar buka/tutup di layar kecil (tidak mengubah logika app.js)
+  (function () {
+    const body = document.body;
+    const close = () => body.classList.remove('sidebar-open');
+    document.getElementById('btnSidebarToggle').addEventListener('click', () => body.classList.toggle('sidebar-open'));
+    document.getElementById('sidebarBackdrop').addEventListener('click', close);
+    document.querySelectorAll('.sidebar-nav-btn').forEach(b => b.addEventListener('click', close));
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="app.js?v=2026-10-02.5"></script>
 
